@@ -18,6 +18,17 @@ final class AppSettings {
         didSet { save(Int(displayID ?? 0), "displayID") }
     }
 
+    var styleID: String {
+        didSet { save(styleID, "styleID") }
+    }
+
+    /// Theme, font, size, glow, speed, spread, frame.
+    var styleSettings: StyleSettings {
+        didSet {
+            if let data = try? JSONEncoder().encode(styleSettings) { save(data, "styleSettings") }
+        }
+    }
+
     /// Called after any setting changes.
     @ObservationIgnored var onChange: (() -> Void)?
 
@@ -27,6 +38,9 @@ final class AppSettings {
         stageMode = defaults.bool(forKey: "stageMode")
         let id = defaults.integer(forKey: "displayID")
         displayID = id == 0 ? nil : CGDirectDisplayID(id)
+        styleID = defaults.string(forKey: "styleID") ?? ConstellationStyle.id
+        styleSettings = defaults.data(forKey: "styleSettings")
+            .flatMap { try? JSONDecoder().decode(StyleSettings.self, from: $0) } ?? StyleSettings()
     }
 
     private func save(_ value: Any, _ key: String) {

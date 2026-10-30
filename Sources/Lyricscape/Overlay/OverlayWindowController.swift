@@ -31,7 +31,7 @@ final class OverlayWindowController {
     private let spotify: SpotifyMonitor
     private let lyrics: LyricsController
     private var panel: OverlayPanel?
-    private var ticker: SimpleOverlayTicker?
+    private var stage: LyricsStageView?
 
     init(settings: AppSettings, spotify: SpotifyMonitor, lyrics: LyricsController) {
         self.settings = settings
@@ -55,12 +55,21 @@ final class OverlayWindowController {
         }
         if panel == nil {
             let panel = OverlayPanel(screen: screen)
-            let ticker = SimpleOverlayTicker(spotify: spotify, lyrics: lyrics)
-            ticker.start()
-            self.ticker = ticker
-            let host = NSHostingView(rootView: OverlayView(spotify: spotify, lyrics: lyrics, settings: settings, ticker: ticker))
-            host.sizingOptions = [] // the window sizes the view, never the other way round
-            panel.contentView = host
+            let container = NSView(frame: CGRect(origin: .zero, size: screen.frame.size))
+
+            let stage = LyricsStageView(frame: container.bounds, spotify: spotify, lyrics: lyrics, settings: settings)
+            stage.autoresizingMask = [.width, .height]
+            container.addSubview(stage)
+
+            let status = NSHostingView(rootView: OverlayStatusView(spotify: spotify, lyrics: lyrics))
+            status.sizingOptions = [] // the window sizes the view, never the other way round
+            status.frame = container.bounds
+            status.autoresizingMask = [.width, .height]
+            container.addSubview(status)
+
+            panel.contentView = container
+            stage.start()
+            self.stage = stage
             self.panel = panel
             Logger.app.notice("🖥 Overlay shown on “\(screen.localizedName, privacy: .public)”")
         }
@@ -76,8 +85,8 @@ final class OverlayWindowController {
         panel.orderOut(nil)
         panel.contentView = nil
         self.panel = nil
-        ticker?.stop()
-        ticker = nil
+        stage?.stop()
+        stage = nil
         Logger.app.notice("🖥 Overlay hidden")
     }
 }
