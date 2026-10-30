@@ -6,7 +6,7 @@
 
 ![Lyricscape in action](docs/lyricscape-demo.gif)
 
-▶︎ **Watch the 40-second demo:** [16:9 video](https://getlyricscape.vercel.app/video/lyricscape-demo.mp4) · [vertical 9:16 for Reels / TikTok](https://getlyricscape.vercel.app/video/lyricscape-demo-vertical.mp4)
+▶︎ **Watch the 40-second demo, with its original soundtrack:** [16:9 video](https://getlyricscape.vercel.app/video/lyricscape-demo.mp4) · [vertical 9:16 for Reels / TikTok](https://getlyricscape.vercel.app/video/lyricscape-demo-vertical.mp4)
 
 ## Using it
 

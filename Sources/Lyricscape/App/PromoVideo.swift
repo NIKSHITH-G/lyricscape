@@ -9,6 +9,17 @@ import QuartzCore
 @MainActor
 enum PromoVideo {
     static let fps = 30.0
+    /// The soundtrack's tempo, and when its drums play: visuals pulse on these beats.
+    static let bpm = 112.0
+    static let drumsStart = 3.2
+    static let drumsEnd = 37.7
+
+    /// 1 on each kick of the soundtrack, decaying; 0 where the drums are silent.
+    static func beat(at videoTime: Double) -> Double {
+        guard videoTime >= drumsStart, videoTime < drumsEnd else { return 0 }
+        let period = 60 / bpm
+        return exp(-(videoTime - drumsStart).truncatingRemainder(dividingBy: period) / period * 7)
+    }
 
     static func runIfRequested() -> Bool {
         let args = CommandLine.arguments
@@ -58,8 +69,10 @@ enum PromoVideo {
         scenes.append(.outro)
 
         var frames = 0
+        var clock = 0.0
         for scene in scenes {
-            let stage = SceneStage(scene: scene, size: size)
+            let stage = SceneStage(scene: scene, size: size, startTime: clock)
+            clock += Double(Int(scene.duration * fps)) / fps
             let count = Int(scene.duration * fps)
             for n in 0..<count {
                 let local = Double(n) / fps
@@ -91,10 +104,13 @@ enum PromoVideo {
         private var settings = StyleSettings()
         private var songStart = 0.0
         private var opaque = true
+        /// When this scene starts in the video, for syncing to the soundtrack.
+        private let startTime: Double
 
-        init(scene: Scene, size: CGSize) {
+        init(scene: Scene, size: CGSize, startTime: Double) {
             self.scene = scene
             self.size = size
+            self.startTime = startTime
             engine = SyncEngine(document: demo.document!)
             root.frame = CGRect(origin: .zero, size: size)
             root.isGeometryFlipped = true
@@ -146,13 +162,11 @@ enum PromoVideo {
             guard style != nil else { return }
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            for t in stride(from: max(0, songStart - 3), to: songStart, by: 1.0 / 30) { step(t) }
+            for t in stride(from: max(0, songStart - 3), to: songStart, by: 1.0 / 30) { step(t, beat: 0) }
             CATransaction.commit()
         }
 
-        private func step(_ t: Double) {
-            let period = 60.0 / 112
-            let beat = exp(-t.truncatingRemainder(dividingBy: period) / period * 7)
+        private func step(_ t: Double, beat: Double) {
             style?.update(LyricFrame(time: t, document: demo.document!, position: engine.position(at: t), isPlaying: true,
                                      track: demo.track!, playID: 0, size: size, topInset: opaque ? 0 : size.height * 0.03,
                                      scale: 1, settings: settings, opaqueBackground: opaque,
@@ -162,7 +176,7 @@ enum PromoVideo {
         func update(local: Double, duration: Double) {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            step(songStart + local)
+            step(songStart + local, beat: PromoVideo.beat(at: startTime + local))
             // Fade in from and out to black at the scene edges.
             let edge = 0.3
             fade.opacity = Float(max(0, 1 - local / edge, 1 - (duration - local) / edge))
