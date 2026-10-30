@@ -33,7 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var audioEnabled: Bool?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        if Snapshot.runIfRequested() {
+        if Snapshot.runIfRequested() || PromoVideo.runIfRequested() {
             NSApp.terminate(nil)
             return
         }

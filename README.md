@@ -4,7 +4,9 @@
 
 **[Download for macOS](https://github.com/NIKSHITH-G/lyricscape/releases/latest/download/Lyricscape.dmg)** · [Website](https://getlyricscape.vercel.app) · Apple silicon · macOS 14+ · free and open source
 
-![The Constellation style](website/public/styles/constellation.webp)
+![Lyricscape in action](docs/lyricscape-demo.gif)
+
+▶︎ **Watch the 40-second demo:** [16:9 video](https://getlyricscape.vercel.app/video/lyricscape-demo.mp4) · [vertical 9:16 for Reels / TikTok](https://getlyricscape.vercel.app/video/lyricscape-demo-vertical.mp4)
 
 ## Using it
 

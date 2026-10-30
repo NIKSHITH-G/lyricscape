@@ -1,6 +1,6 @@
 import Image from "next/image";
 import {
-  ArrowRight, AudioLines, Check, Download, Keyboard, Languages, Layers, MonitorSmartphone,
+  ArrowRight, AudioLines, Check, Download, Film, Smartphone, Keyboard, Languages, Layers, MonitorSmartphone,
   MousePointerClick, Palette, ShieldCheck, Timer, Zap,
 } from "lucide-react";
 import ConstellationDemo from "./components/ConstellationDemo";
@@ -71,6 +71,7 @@ export default function Home() {
           <span>Lyricscape</span>
         </a>
         <nav>
+          <a href="#video">Video</a>
           <a href="#styles">Styles</a>
           <a href="#features">Features</a>
           <a href="#install">Install</a>
@@ -122,6 +123,19 @@ export default function Home() {
           <div><strong>60</strong><span>fps</span></div>
           <div><strong>±2ms</strong><span>sync</span></div>
           <div><strong>0</strong><span>accounts</span></div>
+        </section>
+
+        <section id="video" className="section">
+          <h2>See it in 40 seconds.</h2>
+          <p className="section-lead">Every style, playing the built-in demo song — rendered by the app itself.</p>
+          <div className="video-frame">
+            <video src="/video/lyricscape-demo.mp4" poster="/video/poster.jpg" controls autoPlay muted loop playsInline
+                   preload="metadata" aria-label="Lyricscape demo video" />
+          </div>
+          <div className="video-links">
+            <a className="btn btn-ghost btn-small" href="/video/lyricscape-demo.mp4" download><Film size={14} /> Download video (16:9)</a>
+            <a className="btn btn-ghost btn-small" href="/video/lyricscape-demo-vertical.mp4" download><Smartphone size={14} /> Vertical for Reels &amp; TikTok (9:16)</a>
+          </div>
         </section>
 
         <section id="styles" className="section">
