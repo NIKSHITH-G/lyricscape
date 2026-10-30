@@ -4,6 +4,7 @@ import SwiftUI
 struct MenuBarView: View {
     let spotify: SpotifyMonitor
     let lyrics: LyricsController
+    @Bindable var settings: AppSettings
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -14,6 +15,8 @@ struct MenuBarView: View {
                 Divider()
                 lyricsSection
             }
+            Divider()
+            overlaySection
             Divider()
             Button("Quit Lyricscape") { NSApp.terminate(nil) }
                 .keyboardShortcut("q")
@@ -123,6 +126,37 @@ struct MenuBarView: View {
                 }
             }
             .frame(maxWidth: .infinity, minHeight: 40, alignment: .topLeading)
+        }
+    }
+
+    private var overlaySection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle(isOn: $settings.overlayVisible) {
+                shortcutLabel("Show lyrics on screen", .toggleOverlay)
+            }
+            Toggle(isOn: $settings.stageMode) {
+                shortcutLabel("Stage mode (black background)", .toggleStage)
+            }
+            .disabled(!settings.overlayVisible)
+            if NSScreen.screens.count > 1 {
+                Picker("Display", selection: $settings.displayID) {
+                    Text("Main display").tag(CGDirectDisplayID?.none)
+                    ForEach(NSScreen.screens, id: \.self) { screen in
+                        Text(screen.localizedName).tag(screen.displayID)
+                    }
+                }
+                .controlSize(.small)
+            }
+        }
+        .toggleStyle(.switch)
+        .controlSize(.small)
+    }
+
+    private func shortcutLabel(_ title: String, _ hotKey: HotKey) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            Text(hotKey.displayString).font(.caption.monospaced()).foregroundStyle(.secondary)
         }
     }
 
