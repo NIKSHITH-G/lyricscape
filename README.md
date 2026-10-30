@@ -1,6 +1,10 @@
 # Lyricscape
 
-A macOS menu bar app that turns whatever is playing in the Spotify desktop app into full-screen animated lyrics, synced to the song.
+**Your lyrics, written across the sky.** Lyricscape turns whatever's playing in the Spotify desktop app into animated lyrics across your whole Mac screen, perfectly in time with the music.
+
+**[Download for macOS](https://github.com/NIKSHITH-G/lyricscape/releases/latest/download/Lyricscape.dmg)** · [Website](https://getlyricscape.vercel.app) · Apple silicon · macOS 14+ · free and open source
+
+![The Constellation style](website/public/styles/constellation.webp)
 
 ## Using it
 

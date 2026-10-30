@@ -3,14 +3,94 @@ import LyricscapeCore
 import Observation
 import SwiftUI
 
+// MARK: - Look & feel
+
+/// Brand colours shared by the Settings window (and the website).
+enum Brand {
+    static let background = Color(red: 0.043, green: 0.035, blue: 0.067)
+    static let sidebar = Color(red: 0.06, green: 0.05, blue: 0.09)
+    static let panel = Color.white.opacity(0.045)
+    static let stroke = Color.white.opacity(0.08)
+    static let pink = Color(red: 1, green: 0.165, blue: 0.427)
+    static let violet = Color(red: 0.545, green: 0.36, blue: 0.965)
+    static let text = Color.white.opacity(0.92)
+    static let secondary = Color.white.opacity(0.55)
+    static let gradient = LinearGradient(colors: [pink, violet], startPoint: .topLeading, endPoint: .bottomTrailing)
+
+    static let website = URL(string: "https://getlyricscape.vercel.app")!
+    static let github = URL(string: "https://github.com/NIKSHITH-G/lyricscape")!
+    static let releases = URL(string: "https://github.com/NIKSHITH-G/lyricscape/releases")!
+}
+
 /// View-local state for Settings (SwiftUI's @State isn't available with the
 /// Command Line Tools toolchain, so it lives in a small observable model).
 @MainActor @Observable
 final class SettingsUIModel {
-    enum Tab: Hashable { case style, look, lyrics, general }
-    var tab: Tab = .style
+    enum Section: String, CaseIterable, Identifiable {
+        case styles, look, lyrics, general, about
+        var id: Self { self }
+
+        var title: String {
+            switch self {
+            case .styles: "Styles"
+            case .look: "Look"
+            case .lyrics: "Lyrics & Sound"
+            case .general: "General"
+            case .about: "About"
+            }
+        }
+
+        var subtitle: String {
+            switch self {
+            case .styles: "Pick how the lyrics move. Save the looks you love as presets."
+            case .look: "Colours, type and feel — every change shows up live."
+            case .lyrics: "Timing, translations and reacting to the beat."
+            case .general: "Where the lyrics appear, and how you summon them."
+            case .about: "Lyricscape — your music, written across the sky."
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .styles: "sparkles"
+            case .look: "paintpalette"
+            case .lyrics: "music.note"
+            case .general: "gearshape"
+            case .about: "info.circle"
+            }
+        }
+
+        var showsPreview: Bool { self == .styles || self == .look || self == .lyrics }
+    }
+
+    var section: Section = .styles
     var presetName = ""
+    var hoveredStyle: String?
 }
+
+/// Rendered thumbnails of every style (made offscreen with the demo song).
+@MainActor @Observable
+final class StyleThumbnails {
+    private(set) var images: [String: NSImage] = [:]
+
+    func load() {
+        guard images.isEmpty else { return }
+        Task {
+            for id in StyleRegistry.ids {
+                await Task.yield() // keep the window responsive while rendering
+                var settings = StyleSettings()
+                settings.theme = Snapshot.showcaseTheme(for: id)
+                let size = CGSize(width: 400, height: 250)
+                if let image = Snapshot.still(styleID: id, size: size, time: Snapshot.showcaseTime[id] ?? 12,
+                                              settings: settings, scale: 2) {
+                    images[id] = NSImage(cgImage: image, size: size)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Window content
 
 struct SettingsView: View {
     @Bindable var settings: AppSettings
@@ -18,35 +98,224 @@ struct SettingsView: View {
     let audio: AudioController
     let subtitles: SubtitleService
     @Bindable var ui: SettingsUIModel
+    let thumbnails: StyleThumbnails
 
     var body: some View {
-        VStack(spacing: 0) {
-            StylePreview(settings: settings, subtitles: subtitles)
-                .frame(height: 300)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .overlay(alignment: .bottomLeading) {
-                    Text("Preview · demo song")
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(.white.opacity(0.5))
-                        .padding(10)
+        HStack(spacing: 0) {
+            Sidebar(ui: ui)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(ui.section.title).font(.system(size: 26, weight: .bold, design: .rounded))
+                        Text(ui.section.subtitle).font(.callout).foregroundStyle(Brand.secondary)
+                    }
+                    if ui.section.showsPreview {
+                        PreviewCard(settings: settings, subtitles: subtitles)
+                    }
+                    switch ui.section {
+                    case .styles: StylesSection(settings: settings, ui: ui, thumbnails: thumbnails)
+                    case .look: LookSection(settings: settings)
+                    case .lyrics: LyricsSection(settings: settings, lyrics: lyrics, audio: audio, subtitles: subtitles)
+                    case .general: GeneralSection(settings: settings)
+                    case .about: AboutSection()
+                    }
                 }
-                .padding([.horizontal, .top], 16)
-                .padding(.top, 20)
-
-            TabView(selection: $ui.tab) {
-                StyleTab(settings: settings, ui: ui).tabItem { Text("Style") }.tag(SettingsUIModel.Tab.style)
-                LookTab(settings: settings).tabItem { Text("Look") }.tag(SettingsUIModel.Tab.look)
-                LyricsTab(settings: settings, lyrics: lyrics, audio: audio, subtitles: subtitles)
-                    .tabItem { Text("Lyrics & Sound") }.tag(SettingsUIModel.Tab.lyrics)
-                GeneralTab(settings: settings).tabItem { Text("General") }.tag(SettingsUIModel.Tab.general)
+                .padding(.horizontal, 30)
+                .padding(.top, 44)
+                .padding(.bottom, 30)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(16)
         }
-        .frame(width: 760, height: 820)
+        .frame(width: 960, height: 760)
+        .background(Brand.background)
+        .foregroundStyle(Brand.text)
+        .tint(Brand.pink)
+        .preferredColorScheme(.dark)
+        .onAppear { thumbnails.load() }
+    }
+}
+
+private struct Sidebar: View {
+    @Bindable var ui: SettingsUIModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 10) {
+                Image(nsImage: NSApp.applicationIconImage)
+                    .resizable()
+                    .frame(width: 34, height: 34)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Lyricscape").font(.system(size: 15, weight: .bold, design: .rounded))
+                    Text("v\(AboutSection.version)").font(.caption2).foregroundStyle(Brand.secondary)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.top, 46)
+            .padding(.bottom, 18)
+
+            ForEach(SettingsUIModel.Section.allCases) { section in
+                let selected = ui.section == section
+                Button {
+                    ui.section = section
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: section.icon)
+                            .font(.system(size: 13, weight: .semibold))
+                            .frame(width: 18)
+                        Text(section.title).font(.system(size: 13, weight: selected ? .semibold : .regular))
+                        Spacer()
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .foregroundStyle(selected ? Color.white : Brand.secondary)
+                    .background {
+                        if selected {
+                            RoundedRectangle(cornerRadius: 8).fill(Brand.gradient.opacity(0.85))
+                                .shadow(color: Brand.pink.opacity(0.35), radius: 10)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer()
+            Text("Made with ♪ for Spotify on macOS")
+                .font(.caption2)
+                .foregroundStyle(Brand.secondary.opacity(0.7))
+                .padding(10)
+        }
+        .padding(.horizontal, 12)
+        .frame(width: 210)
+        .frame(maxHeight: .infinity)
+        .background(Brand.sidebar)
+        .overlay(alignment: .trailing) { Rectangle().fill(Brand.stroke).frame(width: 1) }
+    }
+}
+
+// MARK: - Building blocks
+
+private struct Card<Content: View>: View {
+    var title: String?
+    var icon: String?
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if let title {
+                HStack(spacing: 8) {
+                    if let icon {
+                        Image(systemName: icon).font(.system(size: 12, weight: .bold)).foregroundStyle(Brand.gradient)
+                    }
+                    Text(title.uppercased())
+                        .font(.system(size: 11, weight: .bold))
+                        .tracking(1.1)
+                        .foregroundStyle(Brand.secondary)
+                }
+            }
+            content
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Brand.panel))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Brand.stroke))
+    }
+}
+
+private struct Row<Control: View>: View {
+    let title: String
+    var detail: String?
+    @ViewBuilder var control: Control
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 16) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 13, weight: .medium))
+                if let detail { Text(detail).font(.caption).foregroundStyle(Brand.secondary) }
+            }
+            Spacer(minLength: 12)
+            control
+        }
+    }
+}
+
+private struct SliderRow: View {
+    let title: String
+    let icon: String
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon).frame(width: 18).foregroundStyle(Brand.secondary)
+            Text(title).font(.system(size: 13, weight: .medium)).frame(width: 120, alignment: .leading)
+            Slider(value: $value, in: range)
+            Text(String(format: "%.1f×", value))
+                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                .foregroundStyle(Brand.secondary)
+                .frame(width: 44, alignment: .trailing)
+        }
+    }
+}
+
+/// A pill-style button group, used instead of the default segmented control.
+private struct PillPicker<Value: Hashable>: View {
+    @Binding var selection: Value
+    let options: [(Value, String)]
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(options, id: \.0) { value, title in
+                let selected = selection == value
+                Button { selection = value } label: {
+                    Text(title)
+                        .font(.system(size: 12, weight: selected ? .semibold : .regular))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .foregroundStyle(selected ? Color.white : Brand.secondary)
+                        .background(Capsule().fill(selected ? AnyShapeStyle(Brand.gradient) : AnyShapeStyle(Color.clear)))
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(3)
+        .background(Capsule().fill(Color.white.opacity(0.06)))
     }
 }
 
 // MARK: - Live preview
+
+private struct PreviewCard: View {
+    let settings: AppSettings
+    let subtitles: SubtitleService
+
+    var body: some View {
+        StylePreview(settings: settings, subtitles: subtitles)
+            .frame(height: 290)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .overlay(RoundedRectangle(cornerRadius: 16).stroke(Brand.gradient.opacity(0.6), lineWidth: 1))
+            .shadow(color: Brand.pink.opacity(0.18), radius: 24, y: 8)
+            .overlay(alignment: .topLeading) {
+                HStack(spacing: 6) {
+                    Circle().fill(Brand.pink).frame(width: 6, height: 6).shadow(color: Brand.pink, radius: 4)
+                    Text("LIVE PREVIEW").font(.system(size: 10, weight: .bold)).tracking(1)
+                    Text("· demo song").font(.system(size: 10)).foregroundStyle(Brand.secondary)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Capsule().fill(.black.opacity(0.55)))
+                .padding(12)
+            }
+            .overlay(alignment: .bottomTrailing) {
+                Text(StyleRegistry.style(withID: settings.styleID).displayName)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Capsule().fill(.black.opacity(0.55)))
+                    .padding(12)
+            }
+    }
+}
 
 /// The real renderer, small, playing the looping demo song.
 private struct StylePreview: NSViewRepresentable {
@@ -54,7 +323,7 @@ private struct StylePreview: NSViewRepresentable {
     let subtitles: SubtitleService
 
     func makeNSView(context: Context) -> LyricsStageView {
-        let view = LyricsStageView(frame: CGRect(x: 0, y: 0, width: 728, height: 300), source: DemoLyricSource(),
+        let view = LyricsStageView(frame: CGRect(x: 0, y: 0, width: 690, height: 290), source: DemoLyricSource(),
                                    settings: settings, themes: ThemeDirector(), subtitles: subtitles, isPreview: true)
         view.start()
         return view
@@ -67,133 +336,237 @@ private struct StylePreview: NSViewRepresentable {
     }
 }
 
-// MARK: - Style
+// MARK: - Styles
 
-private struct StyleTab: View {
+private struct StylesSection: View {
     @Bindable var settings: AppSettings
     @Bindable var ui: SettingsUIModel
+    let thumbnails: StyleThumbnails
 
     var body: some View {
-        Form {
-            Section("Style") {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 8)], spacing: 8) {
-                    ForEach(StyleRegistry.ids, id: \.self) { id in
-                        let style = StyleRegistry.style(withID: id)
-                        Button {
-                            settings.styleID = id
-                        } label: {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(style.displayName).font(.body.weight(.semibold))
-                                Text(style.summary).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                            }
-                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                            .padding(8)
-                            .background(RoundedRectangle(cornerRadius: 8)
-                                .fill(settings.styleID == id ? Color.accentColor.opacity(0.25) : Color.primary.opacity(0.05)))
-                        }
-                        .buttonStyle(.plain)
-                    }
+        VStack(alignment: .leading, spacing: 22) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: 3), spacing: 14) {
+                ForEach(StyleRegistry.ids, id: \.self) { id in
+                    styleCard(id)
                 }
-                Text("Tip: \(settings.hotKeys[.nextStyle]?.displayString ?? "") switches style from anywhere.")
-                    .font(.caption).foregroundStyle(.secondary)
             }
-            Section("Presets") {
-                HStack {
-                    TextField("Name", text: $ui.presetName, prompt: Text("Save the current style and look as…"))
-                    Button("Save") {
+            HStack(spacing: 6) {
+                Image(systemName: "keyboard").foregroundStyle(Brand.secondary)
+                Text("Press \(settings.hotKeys[.nextStyle]?.displayString ?? "") anywhere to flip to the next style.")
+                    .font(.caption).foregroundStyle(Brand.secondary)
+            }
+
+            Card(title: "Presets", icon: "bookmark.fill") {
+                HStack(spacing: 10) {
+                    TextField("Name this look…", text: $ui.presetName)
+                        .textFieldStyle(.plain)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.06)))
+                    Button {
                         settings.savePreset(named: ui.presetName.trimmingCharacters(in: .whitespaces))
                         ui.presetName = ""
+                    } label: {
+                        Label("Save", systemImage: "plus")
+                            .font(.system(size: 12, weight: .semibold))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(Capsule().fill(Brand.gradient))
                     }
+                    .buttonStyle(.plain)
                     .disabled(ui.presetName.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .opacity(ui.presetName.trimmingCharacters(in: .whitespaces).isEmpty ? 0.5 : 1)
                 }
                 if settings.presets.isEmpty {
-                    Text("No saved presets yet.").foregroundStyle(.secondary)
+                    Text("Your saved looks will appear here — style, colours, font and feel, one click away.")
+                        .font(.caption).foregroundStyle(Brand.secondary)
                 }
                 ForEach(settings.presets) { preset in
-                    HStack {
-                        Text(preset.name)
-                        Text(StyleRegistry.style(withID: preset.styleID).displayName).foregroundStyle(.secondary)
+                    HStack(spacing: 12) {
+                        Circle()
+                            .fill(LinearGradient(colors: [Color(nsColor: preset.settings.theme.glow.nsColor),
+                                                          Color(nsColor: preset.settings.theme.line.nsColor)],
+                                                 startPoint: .top, endPoint: .bottom))
+                            .frame(width: 22, height: 22)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(preset.name).font(.system(size: 13, weight: .semibold))
+                            Text(StyleRegistry.style(withID: preset.styleID).displayName)
+                                .font(.caption).foregroundStyle(Brand.secondary)
+                        }
                         Spacer()
                         Button("Apply") { settings.apply(preset) }
-                        Button(role: .destructive) {
+                            .buttonStyle(.plain)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Brand.pink)
+                        Button {
                             settings.presets.removeAll { $0.id == preset.id }
-                        } label: { Image(systemName: "trash") }
+                        } label: { Image(systemName: "trash").foregroundStyle(Brand.secondary) }
+                            .buttonStyle(.plain)
                     }
+                    .padding(.vertical, 4)
                 }
             }
         }
-        .formStyle(.grouped)
+    }
+
+    private func styleCard(_ id: String) -> some View {
+        let style = StyleRegistry.style(withID: id)
+        let selected = settings.styleID == id
+        let hovered = ui.hoveredStyle == id
+        return Button {
+            settings.styleID = id
+        } label: {
+            VStack(alignment: .leading, spacing: 0) {
+                ZStack {
+                    Rectangle().fill(Color.black)
+                    if let image = thumbnails.images[id] {
+                        Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
+                    } else {
+                        ProgressView().controlSize(.small)
+                    }
+                }
+                .frame(height: 112)
+                .clipped()
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack {
+                        Text(style.displayName).font(.system(size: 13, weight: .semibold, design: .rounded))
+                        Spacer()
+                        if selected {
+                            Image(systemName: "checkmark.circle.fill").foregroundStyle(Brand.gradient)
+                        }
+                    }
+                    Text(style.summary).font(.caption).foregroundStyle(Brand.secondary).lineLimit(1)
+                }
+                .padding(10)
+            }
+            .background(Brand.panel)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12)
+                .stroke(selected ? AnyShapeStyle(Brand.gradient) : AnyShapeStyle(Brand.stroke), lineWidth: selected ? 2 : 1))
+            .shadow(color: selected ? Brand.pink.opacity(0.3) : .clear, radius: 12)
+            .scaleEffect(hovered ? 1.02 : 1)
+            .animation(.easeOut(duration: 0.15), value: hovered)
+            .contentShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+        .onHover { ui.hoveredStyle = $0 ? id : (ui.hoveredStyle == id ? nil : ui.hoveredStyle) }
     }
 }
 
 // MARK: - Look
 
-private struct LookTab: View {
+private struct LookSection: View {
     @Bindable var settings: AppSettings
 
     var body: some View {
-        Form {
-            Section("Colours") {
-                Picker("Theme", selection: $settings.styleSettings.themeMode) {
-                    ForEach(ThemeMode.allCases, id: \.self) { Text($0.title).tag($0) }
+        VStack(alignment: .leading, spacing: 18) {
+            Card(title: "Colours", icon: "drop.fill") {
+                HStack(spacing: 12) {
+                    modeCard(.newEachPlay, icon: "sparkles", caption: "A fresh neon palette every song — and every replay.")
+                    modeCard(.albumArt, icon: "photo", caption: "Colours pulled from the cover, varied each play.")
+                    modeCard(.fixed, icon: "lock", caption: "Your pick, every time.")
                 }
-                .pickerStyle(.segmented)
-                switch settings.styleSettings.themeMode {
-                case .newEachPlay:
-                    Text("Every song — and every replay — gets a fresh neon palette, never close to the last few.")
-                        .font(.caption).foregroundStyle(.secondary)
-                case .albumArt:
-                    Text("Colours come from each song's cover art, varied slightly on every play.")
-                        .font(.caption).foregroundStyle(.secondary)
-                case .fixed:
-                    Picker("Preset", selection: presetBinding) {
-                        ForEach(LyricTheme.presets, id: \.name) { Text($0.name).tag($0.name) }
-                        if !LyricTheme.presets.contains(where: { $0.name == settings.styleSettings.theme.name }) {
-                            Text("Custom").tag(settings.styleSettings.theme.name)
-                        }
+                if settings.styleSettings.themeMode == .fixed {
+                    LazyVGrid(columns: Array(repeating: GridItem(.fixed(64), spacing: 10), count: 9), alignment: .leading, spacing: 10) {
+                        ForEach(LyricTheme.presets, id: \.name) { theme in swatch(theme) }
                     }
-                    HStack {
+                    HStack(spacing: 18) {
                         color("Text", \.text)
                         color("Glow", \.glow)
                         color("Accent", \.accent)
                         color("Lines", \.line)
                     }
+                    .font(.caption)
                 }
             }
-            Section("Type") {
-                Picker("Font", selection: $settings.styleSettings.fontName) {
-                    Text("SF Pro Rounded").tag(String?.none)
-                    Divider()
-                    ForEach(NSFontManager.shared.availableFontFamilies, id: \.self) { Text($0).tag(String?.some($0)) }
+
+            Card(title: "Type", icon: "textformat") {
+                Row(title: "Font", detail: "Every style uses it; Typewriter stays monospaced by default.") {
+                    Picker("", selection: $settings.styleSettings.fontName) {
+                        Text("SF Pro Rounded").tag(String?.none)
+                        Divider()
+                        ForEach(NSFontManager.shared.availableFontFamilies, id: \.self) { Text($0).tag(String?.some($0)) }
+                    }
+                    .labelsHidden()
+                    .frame(width: 220)
                 }
-                slider("Size", $settings.styleSettings.sizeScale, 0.6...1.6)
+                SliderRow(title: "Size", icon: "textformat.size", value: $settings.styleSettings.sizeScale, range: 0.6...1.6)
             }
-            Section("Feel") {
-                slider("Glow", $settings.styleSettings.glow, 0...2)
-                slider("Animation speed", $settings.styleSettings.speed, 0.5...2)
-                slider("Spread / density", $settings.styleSettings.spread, 0.6...1.6)
-                slider("Opacity", $settings.styleSettings.opacity, 0.2...1)
-                Picker("Position", selection: $settings.styleSettings.anchor) {
-                    ForEach(ScreenAnchor.allCases, id: \.self) { Text($0.title).tag($0) }
+
+            Card(title: "Feel", icon: "wand.and.stars") {
+                SliderRow(title: "Glow", icon: "sun.max", value: $settings.styleSettings.glow, range: 0...2)
+                SliderRow(title: "Speed", icon: "hare", value: $settings.styleSettings.speed, range: 0.5...2)
+                SliderRow(title: "Spread", icon: "arrow.up.left.and.arrow.down.right", value: $settings.styleSettings.spread, range: 0.6...1.6)
+                SliderRow(title: "Opacity", icon: "circle.lefthalf.filled", value: $settings.styleSettings.opacity, range: 0.2...1)
+                Divider().overlay(Brand.stroke)
+                Row(title: "Neon frame", detail: "A glowing border round the screen that flashes on the big words.") {
+                    Toggle("", isOn: $settings.styleSettings.showFrame).toggleStyle(.switch).labelsHidden()
                 }
-                Toggle("Neon frame around the screen", isOn: $settings.styleSettings.showFrame)
             }
-            Section {
-                Button("Reset look to defaults") {
+
+            Card(title: "Position", icon: "rectangle.dashed") {
+                HStack(alignment: .top, spacing: 20) {
+                    PositionPicker(anchor: $settings.styleSettings.anchor)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(settings.styleSettings.anchor.title).font(.system(size: 15, weight: .semibold))
+                        Text("Where Karaoke, Typewriter, Glitch, Particles and Minimal sit on screen. Minimal treats Centre as bottom-left.")
+                            .font(.caption).foregroundStyle(Brand.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+
+            HStack {
+                Spacer()
+                Button {
                     let mode = settings.styleSettings.themeMode
                     settings.styleSettings = StyleSettings()
                     settings.styleSettings.themeMode = mode
+                } label: {
+                    Label("Reset look", systemImage: "arrow.counterclockwise").font(.caption)
                 }
+                .buttonStyle(.plain)
+                .foregroundStyle(Brand.secondary)
             }
         }
-        .formStyle(.grouped)
     }
 
-    private var presetBinding: Binding<String> {
-        Binding(get: { settings.styleSettings.theme.name },
-                set: { name in
-                    if let theme = LyricTheme.presets.first(where: { $0.name == name }) { settings.styleSettings.theme = theme }
-                })
+    private func modeCard(_ mode: ThemeMode, icon: String, caption: String) -> some View {
+        let selected = settings.styleSettings.themeMode == mode
+        return Button { settings.styleSettings.themeMode = mode } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                Image(systemName: icon)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(selected ? AnyShapeStyle(Brand.gradient) : AnyShapeStyle(Brand.secondary))
+                Text(mode.title).font(.system(size: 13, weight: .semibold))
+                Text(caption).font(.caption).foregroundStyle(Brand.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, minHeight: 108, alignment: .topLeading)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(selected ? 0.07 : 0.03)))
+            .overlay(RoundedRectangle(cornerRadius: 10)
+                .stroke(selected ? AnyShapeStyle(Brand.gradient) : AnyShapeStyle(Brand.stroke), lineWidth: selected ? 1.5 : 1))
+            .contentShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func swatch(_ theme: LyricTheme) -> some View {
+        let selected = settings.styleSettings.theme.name == theme.name
+        return Button { settings.styleSettings.theme = theme } label: {
+            VStack(spacing: 5) {
+                Circle()
+                    .fill(RadialGradient(colors: [Color(nsColor: theme.accent.nsColor), Color(nsColor: theme.glow.nsColor)],
+                                         center: .center, startRadius: 2, endRadius: 18))
+                    .frame(width: 34, height: 34)
+                    .shadow(color: Color(nsColor: theme.glow.nsColor).opacity(0.7), radius: selected ? 10 : 4)
+                    .overlay(Circle().stroke(Color.white, lineWidth: selected ? 2 : 0))
+                Text(theme.name).font(.system(size: 10)).foregroundStyle(selected ? Brand.text : Brand.secondary).lineLimit(1)
+            }
+        }
+        .buttonStyle(.plain)
     }
 
     private func color(_ title: String, _ keyPath: WritableKeyPath<LyricTheme, RGBA>) -> some View {
@@ -207,118 +580,302 @@ private struct LookTab: View {
     }
 }
 
-private func slider(_ title: String, _ value: Binding<Double>, _ range: ClosedRange<Double>) -> some View {
-    LabeledContent(title) {
-        HStack {
-            Slider(value: value, in: range)
-            Text(String(format: "%.1f", value.wrappedValue))
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
-                .frame(width: 28)
+/// A miniature screen with clickable spots for each position.
+private struct PositionPicker: View {
+    @Binding var anchor: ScreenAnchor
+
+    private let grid: [[ScreenAnchor?]] = [
+        [.topLeft, .top, .topRight],
+        [nil, .center, nil],
+        [.bottomLeft, .bottom, .bottomRight],
+    ]
+
+    var body: some View {
+        VStack(spacing: 6) {
+            ForEach(0..<3, id: \.self) { r in
+                HStack(spacing: 6) {
+                    ForEach(0..<3, id: \.self) { c in
+                        if let spot = grid[r][c] {
+                            Button { anchor = spot } label: {
+                                RoundedRectangle(cornerRadius: 4)
+                                    .fill(anchor == spot ? AnyShapeStyle(Brand.gradient) : AnyShapeStyle(Color.white.opacity(0.08)))
+                                    .frame(width: 38, height: 22)
+                                    .shadow(color: anchor == spot ? Brand.pink.opacity(0.6) : .clear, radius: 6)
+                            }
+                            .buttonStyle(.plain)
+                        } else {
+                            Color.clear.frame(width: 38, height: 22)
+                        }
+                    }
+                }
+            }
         }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.5)))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Brand.stroke))
     }
 }
 
 // MARK: - Lyrics & sound
 
-private struct LyricsTab: View {
+private struct LyricsSection: View {
     @Bindable var settings: AppSettings
     @Bindable var lyrics: LyricsController
     let audio: AudioController
     let subtitles: SubtitleService
 
     var body: some View {
-        Form {
-            Section("Timing") {
-                LabeledContent("Lyrics offset") {
-                    HStack {
-                        Button { lyrics.adjustOffset(by: -0.1) } label: { Image(systemName: "minus") }
-                        Text(offsetLabel).font(.body.monospacedDigit()).frame(minWidth: 110)
-                        Button { lyrics.adjustOffset(by: 0.1) } label: { Image(systemName: "plus") }
-                        Button("Reset") { lyrics.offset = 0 }.disabled(lyrics.offset == 0)
+        VStack(alignment: .leading, spacing: 18) {
+            Card(title: "Timing", icon: "metronome") {
+                HStack(spacing: 16) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(offsetLabel).font(.system(size: 22, weight: .bold, design: .rounded))
+                        Text("Nudge if lyrics are consistently early or late.").font(.caption).foregroundStyle(Brand.secondary)
                     }
-                }
-                Text("If lyrics are consistently early or late, nudge them here in 0.1 s steps.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Section("Translation & romanization") {
-                Picker("Show under the lyrics", selection: $settings.subtitleMode) {
-                    ForEach(SubtitleMode.allCases, id: \.self) { Text($0.title).tag($0) }
-                }
-                Text("Romanization spells Korean, Japanese, Chinese and other scripts in Latin letters. Translation uses Apple's on-device translation into \(Locale.current.localizedString(forLanguageCode: subtitles.targetLanguage.languageCode?.identifier ?? "en") ?? "your language").")
-                    .font(.caption).foregroundStyle(.secondary)
-                if let problem = subtitles.lastProblem, settings.subtitleMode != .off {
-                    Text(problem).font(.caption).foregroundStyle(.orange)
+                    Spacer()
+                    stepButton("minus", help: "Show lyrics later") { lyrics.adjustOffset(by: -0.1) }
+                    stepButton("plus", help: "Show lyrics earlier") { lyrics.adjustOffset(by: 0.1) }
+                    stepButton("arrow.counterclockwise", help: "Reset") { lyrics.offset = 0 }
+                        .disabled(lyrics.offset == 0)
+                        .opacity(lyrics.offset == 0 ? 0.4 : 1)
                 }
             }
-            Section("Sound") {
-                Toggle("React to the music (beats, bass)", isOn: $settings.audioReactive)
+
+            Card(title: "Translation & romanization", icon: "character.bubble") {
+                PillPicker(selection: $settings.subtitleMode,
+                           options: SubtitleMode.allCases.map { ($0, $0.title) })
+                VStack(alignment: .leading, spacing: 6) {
+                    example("별빛 아래서 우리는 춤을 춰")
+                    example("夜空に光る ふたりの声")
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.35)))
+                Text("Romanization works offline for Korean, Japanese, Chinese and more. Translation uses Apple's on-device translation into \(Locale.current.localizedString(forLanguageCode: subtitles.targetLanguage.languageCode?.identifier ?? "en") ?? "your language") — download languages in System Settings › General › Language & Region › Translation Languages.")
+                    .font(.caption).foregroundStyle(Brand.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let problem = subtitles.lastProblem, settings.subtitleMode == .translation || settings.subtitleMode == .both {
+                    Label(problem, systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.orange)
+                }
+            }
+
+            Card(title: "React to the music", icon: "waveform") {
+                Row(title: "Beat & bass reactivity",
+                    detail: "Glows, stars and particles pulse with the music. Listens to Spotify only — never your screen.") {
+                    Toggle("", isOn: $settings.audioReactive).toggleStyle(.switch).labelsHidden()
+                }
                 if settings.audioReactive {
-                    LabeledContent("Status", value: audioStatus)
+                    HStack(spacing: 10) {
+                        statusPill
+                        Spacer()
+                        if audio.status == .running { AudioMeter(reactor: audio.reactor) }
+                    }
                     if audio.status == .needsPermission {
-                        Button("Open Screen & System Audio Recording settings") {
+                        Button {
                             NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
+                        } label: {
+                            Label("Open Screen & System Audio Recording settings", systemImage: "lock.open")
+                                .font(.system(size: 12, weight: .semibold))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(Capsule().fill(Brand.gradient))
                         }
-                        Text("Turn on Lyricscape there, then come back — it starts by itself. Lyricscape only listens to Spotify's audio and never records your screen.")
-                            .font(.caption).foregroundStyle(.secondary)
+                        .buttonStyle(.plain)
+                        Text("Turn on Lyricscape there, then come back — it starts listening by itself.")
+                            .font(.caption).foregroundStyle(Brand.secondary)
                     }
                 }
             }
         }
-        .formStyle(.grouped)
+    }
+
+    private func example(_ text: String) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(text).font(.system(size: 13, weight: .semibold))
+            Text(subtitles.romanization(of: text) ?? "").font(.caption).foregroundStyle(Brand.pink.opacity(0.9))
+        }
+    }
+
+    private func stepButton(_ icon: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: .bold))
+                .frame(width: 34, height: 34)
+                .background(Circle().fill(Color.white.opacity(0.08)))
+                .overlay(Circle().stroke(Brand.stroke))
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 
     private var offsetLabel: String {
-        if lyrics.offset == 0 { return "in sync" }
+        if lyrics.offset == 0 { return "In sync" }
         return String(format: "%.1f s %@", abs(lyrics.offset), lyrics.offset > 0 ? "earlier" : "later")
     }
 
-    private var audioStatus: String {
-        switch audio.status {
-        case .off: "Off"
-        case .needsPermission: "Needs permission"
-        case .waitingForSpotify: "Waiting for Spotify"
-        case .running: "Listening ✓"
-        case .failed(let message): "Error: \(message)"
+    private var statusPill: some View {
+        let (text, color): (String, Color) = switch audio.status {
+        case .off: ("Off", Brand.secondary)
+        case .needsPermission: ("Needs permission", .orange)
+        case .waitingForSpotify: ("Waiting for Spotify", .yellow)
+        case .running: ("Listening", .green)
+        case .failed(let message): ("Error: \(message)", .red)
+        }
+        return HStack(spacing: 6) {
+            Circle().fill(color).frame(width: 7, height: 7).shadow(color: color, radius: 4)
+            Text(text).font(.system(size: 12, weight: .semibold))
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(Capsule().fill(color.opacity(0.12)))
+    }
+}
+
+/// Live bars for loudness, bass and beat.
+private struct AudioMeter: View {
+    let reactor: AudioReactor
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30)) { _ in
+            let levels = reactor.levels
+            HStack(alignment: .bottom, spacing: 10) {
+                bar("Level", levels.level)
+                bar("Bass", levels.bass)
+                bar("Beat", levels.beat)
+            }
+        }
+    }
+
+    private func bar(_ title: String, _ value: Double) -> some View {
+        VStack(spacing: 3) {
+            ZStack(alignment: .bottom) {
+                Capsule().fill(Color.white.opacity(0.08)).frame(width: 8, height: 30)
+                Capsule().fill(Brand.gradient).frame(width: 8, height: max(3, 30 * value))
+            }
+            Text(title).font(.system(size: 9)).foregroundStyle(Brand.secondary)
         }
     }
 }
 
 // MARK: - General
 
-private struct GeneralTab: View {
+private struct GeneralSection: View {
     @Bindable var settings: AppSettings
 
     var body: some View {
-        Form {
-            Section("Overlay") {
-                Toggle("Show lyrics on screen", isOn: $settings.overlayVisible)
-                Toggle("Stage mode (black background)", isOn: $settings.stageMode)
-                Picker("Display", selection: $settings.displayID) {
-                    Text("Main display").tag(CGDirectDisplayID?.none)
+        VStack(alignment: .leading, spacing: 18) {
+            Card(title: "Overlay", icon: "rectangle.on.rectangle") {
+                Row(title: "Show lyrics on screen", detail: "Floats over everything; clicks pass straight through.") {
+                    Toggle("", isOn: $settings.overlayVisible).toggleStyle(.switch).labelsHidden()
+                }
+                Row(title: "Stage mode", detail: "A black stage behind your windows, like a live wallpaper.") {
+                    Toggle("", isOn: $settings.stageMode).toggleStyle(.switch).labelsHidden()
+                }
+            }
+
+            Card(title: "Screen", icon: "display") {
+                HStack(spacing: 12) {
+                    screenCard(nil, name: "Main display", icon: "menubar.rectangle")
                     ForEach(NSScreen.screens, id: \.self) { screen in
-                        Text(screen.localizedName).tag(screen.displayID)
+                        screenCard(screen.displayID, name: screen.localizedName,
+                                   icon: screen.localizedName.localizedCaseInsensitiveContains("built-in") ? "laptopcomputer" : "display")
                     }
                 }
             }
-            Section("Keyboard shortcuts") {
+
+            Card(title: "Keyboard shortcuts", icon: "command") {
                 ForEach(HotKeyAction.allCases, id: \.self) { action in
-                    LabeledContent(action.title) {
+                    Row(title: action.title) {
                         ShortcutRecorder(hotKey: Binding(
                             get: { settings.hotKeys[action] ?? HotKey.defaults[action]! },
                             set: { settings.hotKeys[action] = $0 }))
-                        .frame(width: 140, height: 24)
+                        .frame(width: 150, height: 26)
                     }
                 }
-                Button("Restore default shortcuts") { settings.hotKeys = HotKey.defaults }
+                HStack {
+                    Text("Click a shortcut, then press the new keys (with ⌘, ⌥ or ⌃).").font(.caption).foregroundStyle(Brand.secondary)
+                    Spacer()
+                    Button("Restore defaults") { settings.hotKeys = HotKey.defaults }
+                        .buttonStyle(.plain).font(.caption).foregroundStyle(Brand.pink)
+                }
             }
-            Section("Startup") {
-                Toggle("Launch at login", isOn: $settings.launchAtLogin)
+
+            Card(title: "Startup", icon: "power") {
+                Row(title: "Launch at login", detail: "Start Lyricscape quietly in the menu bar when you log in.") {
+                    Toggle("", isOn: $settings.launchAtLogin).toggleStyle(.switch).labelsHidden()
+                }
             }
         }
-        .formStyle(.grouped)
+    }
+
+    private func screenCard(_ id: CGDirectDisplayID?, name: String, icon: String) -> some View {
+        let selected = settings.displayID == id
+        return Button { settings.displayID = id } label: {
+            VStack(spacing: 8) {
+                Image(systemName: icon).font(.system(size: 24, weight: .light))
+                    .foregroundStyle(selected ? AnyShapeStyle(Brand.gradient) : AnyShapeStyle(Brand.secondary))
+                Text(name).font(.system(size: 11, weight: .medium)).lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, minHeight: 78)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(selected ? 0.07 : 0.03)))
+            .overlay(RoundedRectangle(cornerRadius: 10)
+                .stroke(selected ? AnyShapeStyle(Brand.gradient) : AnyShapeStyle(Brand.stroke), lineWidth: selected ? 1.5 : 1))
+            .contentShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
     }
 }
+
+// MARK: - About
+
+private struct AboutSection: View {
+    static var version: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
+    }
+
+    var body: some View {
+        VStack(spacing: 18) {
+            VStack(spacing: 12) {
+                Image(nsImage: NSApp.applicationIconImage)
+                    .resizable()
+                    .frame(width: 112, height: 112)
+                    .shadow(color: Brand.pink.opacity(0.45), radius: 30)
+                Text("Lyricscape").font(.system(size: 30, weight: .bold, design: .rounded))
+                Text("Version \(Self.version)").font(.callout).foregroundStyle(Brand.secondary)
+                Text("Live, animated lyrics for whatever's playing in Spotify — written across your screen in time with the music.")
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(Brand.secondary)
+                    .frame(maxWidth: 440)
+            }
+            .padding(.vertical, 24)
+            .frame(maxWidth: .infinity)
+            .background(RoundedRectangle(cornerRadius: 16).fill(Brand.panel))
+            .overlay(RoundedRectangle(cornerRadius: 16).stroke(Brand.stroke))
+
+            HStack(spacing: 12) {
+                link("Website", icon: "globe", url: Brand.website)
+                link("Source on GitHub", icon: "chevron.left.forwardslash.chevron.right", url: Brand.github)
+                link("Check for updates", icon: "arrow.down.circle", url: Brand.releases)
+            }
+            Text("Lyrics from LRCLIB · Made by NIKSHITH G · MIT licence")
+                .font(.caption).foregroundStyle(Brand.secondary)
+        }
+    }
+
+    private func link(_ title: String, icon: String, url: URL) -> some View {
+        Button { NSWorkspace.shared.open(url) } label: {
+            Label(title, systemImage: icon)
+                .font(.system(size: 12, weight: .semibold))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.06)))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Brand.stroke))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Shortcut recorder
 
 /// Click, then press a key combination (with ⌘, ⌥ or ⌃) to set a shortcut. Esc cancels.
 private struct ShortcutRecorder: NSViewRepresentable {

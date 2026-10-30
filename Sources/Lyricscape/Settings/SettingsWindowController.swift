@@ -10,6 +10,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private let audio: AudioController
     private let subtitles: SubtitleService
     private var window: NSWindow?
+    /// Kept across openings so the style thumbnails only render once.
+    private let thumbnails = StyleThumbnails()
 
     init(settings: AppSettings, lyrics: LyricsController, audio: AudioController, subtitles: SubtitleService) {
         self.settings = settings
@@ -20,15 +22,19 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     func show() {
         if window == nil {
-            let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 760, height: 820),
+            let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 960, height: 760),
                                   styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
                                   backing: .buffered, defer: false)
             window.title = "Lyricscape Settings"
+            window.titleVisibility = .hidden
             window.titlebarAppearsTransparent = true
+            window.appearance = NSAppearance(named: .darkAqua)
+            window.backgroundColor = NSColor(red: 0.043, green: 0.035, blue: 0.067, alpha: 1)
             window.isReleasedWhenClosed = false
             window.delegate = self
             window.contentView = NSHostingView(rootView: SettingsView(
-                settings: settings, lyrics: lyrics, audio: audio, subtitles: subtitles, ui: SettingsUIModel()))
+                settings: settings, lyrics: lyrics, audio: audio, subtitles: subtitles, ui: SettingsUIModel(),
+                thumbnails: thumbnails))
             window.center()
             self.window = window
         }

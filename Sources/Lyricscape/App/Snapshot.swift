@@ -18,8 +18,78 @@ enum Snapshot {
         let times = args.firstIndex(of: "--times").flatMap { $0 + 1 < args.count ? args[$0 + 1] : nil }?
             .split(separator: ",").compactMap { Double($0) } ?? [3, 7.0, 10.6, 15.0, 25.4, 41.0]
         let mode = args.firstIndex(of: "--theme").flatMap { $0 + 1 < args.count ? ThemeMode(rawValue: args[$0 + 1]) : nil }
-        render(to: folder, styleIDs: only.map { [$0] } ?? StyleRegistry.ids, times: times, themeMode: mode)
+        if args.contains("--gallery") {
+            gallery(to: folder, size: parseSize(args) ?? CGSize(width: 1600, height: 1000))
+        } else {
+            render(to: folder, styleIDs: only.map { [$0] } ?? StyleRegistry.ids, times: times, themeMode: mode)
+        }
         return true
+    }
+
+    private static func parseSize(_ args: [String]) -> CGSize? {
+        guard let i = args.firstIndex(of: "--size"), i + 1 < args.count else { return nil }
+        let parts = args[i + 1].split(separator: "x").compactMap { Double($0) }
+        return parts.count == 2 ? CGSize(width: parts[0], height: parts[1]) : nil
+    }
+
+    /// The moment of the demo song that shows each style off best.
+    static let showcaseTime: [String: Double] = [
+        "constellation": 15.6, "kinetic": 11.3, "karaoke": 10.7, "rain": 12.3, "orbit": 15.4,
+        "typewriter": 15.6, "glitch": 10.4, "particles": 9.35, "minimal": 15.0,
+    ]
+
+    /// A hue per style, so a gallery of them isn't all one colour.
+    static func showcaseTheme(for id: String) -> LyricTheme {
+        let index = Double(StyleRegistry.ids.firstIndex(of: id) ?? 0)
+        let hue = (0.92 + index * 0.11).truncatingRemainder(dividingBy: 1)
+        return id == "typewriter" ? .terminal : .neon(hue: hue, lineHue: (hue + 0.08).truncatingRemainder(dividingBy: 1))
+    }
+
+    /// `--gallery`: one showcase PNG per style (for the website).
+    private static func gallery(to folder: URL, size: CGSize) {
+        for id in StyleRegistry.ids {
+            var settings = StyleSettings()
+            settings.theme = showcaseTheme(for: id)
+            guard let image = still(styleID: id, size: size, time: showcaseTime[id] ?? 12, settings: settings) else { continue }
+            let rep = NSBitmapImageRep(cgImage: image)
+            try? rep.representation(using: .png, properties: [:])?.write(to: folder.appending(path: "\(id).png"))
+            print("rendered \(id)")
+        }
+    }
+
+    /// One frame of a style playing the demo song at `time`, rendered offscreen.
+    /// Used for the Settings thumbnails and the website gallery.
+    static func still(styleID: String, size: CGSize, time: Double, settings: StyleSettings, scale: CGFloat = 1) -> CGImage? {
+        let demo = DemoLyricSource()
+        guard let document = demo.document, let track = demo.track,
+              let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else { return nil }
+        let engine = SyncEngine(document: document)
+        let root = CALayer()
+        root.frame = CGRect(origin: .zero, size: size)
+        root.isGeometryFlipped = true
+        root.backgroundColor = CGColor.black
+        let styleRoot = CALayer()
+        styleRoot.frame = root.bounds
+        root.addSublayer(styleRoot)
+        let style = StyleRegistry.style(withID: styleID).init(root: styleRoot)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for t in stride(from: max(0, time - 3), through: time, by: 1.0 / 30) {
+            style.update(LyricFrame(time: t, document: document, position: engine.position(at: t), isPlaying: true,
+                                    track: track, playID: 0, size: size, topInset: 0, scale: scale, settings: settings,
+                                    opaqueBackground: true, audio: demoAudio(t)))
+        }
+        CATransaction.commit()
+        // Render at `scale`× by drawing the point-sized tree into a larger canvas.
+        let pixelSize = CGSize(width: size.width * scale, height: size.height * scale)
+        let canvas = CALayer()
+        canvas.frame = CGRect(origin: .zero, size: pixelSize)
+        root.anchorPoint = .zero
+        root.position = .zero
+        root.transform = CATransform3DMakeScale(scale, scale, 1)
+        canvas.addSublayer(root)
+        defer { style.reset() }
+        return renderImage(canvas, size: pixelSize, device: device, queue: queue)
     }
 
     private static func render(to folder: URL, styleIDs: [String], times: [Double], themeMode: ThemeMode?) {
