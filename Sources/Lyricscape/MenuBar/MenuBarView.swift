@@ -3,6 +3,7 @@ import SwiftUI
 
 struct MenuBarView: View {
     let spotify: SpotifyMonitor
+    let lyrics: LyricsController
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -10,13 +11,15 @@ struct MenuBarView: View {
             status
             if let track = spotify.track, spotify.connection == .connected {
                 nowPlaying(track)
+                Divider()
+                lyricsSection
             }
             Divider()
             Button("Quit Lyricscape") { NSApp.terminate(nil) }
                 .keyboardShortcut("q")
         }
         .padding(14)
-        .frame(width: 300)
+        .frame(width: 320)
     }
 
     @ViewBuilder private var status: some View {
@@ -49,10 +52,6 @@ struct MenuBarView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(track.title).font(.body.bold()).lineLimit(1)
             Text("\(track.artist) · \(track.album)").font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            if track.kind == .ad || track.kind == .podcast {
-                Text(track.kind == .ad ? "Advertisement" : "Podcast")
-                    .font(.caption2).foregroundStyle(.secondary)
-            }
             // Only redraw continuously while playing, to keep CPU usage low.
             TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !spotify.isPlaying)) { _ in
                 let position = spotify.position()
@@ -70,5 +69,83 @@ struct MenuBarView: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder private var lyricsSection: some View {
+        switch lyrics.state {
+        case .idle:
+            EmptyView()
+        case .notApplicable(let kind):
+            Label(kind == .ad ? "Advertisement — no lyrics" : "Podcast — no lyrics", systemImage: "text.badge.xmark")
+                .foregroundStyle(.secondary)
+        case .loading:
+            Label("Finding lyrics…", systemImage: "magnifyingglass")
+                .foregroundStyle(.secondary)
+        case .instrumental:
+            Label("Instrumental", systemImage: "pianokeys")
+                .foregroundStyle(.secondary)
+        case .notFound:
+            lyricsUnavailable("No lyrics found for this song")
+        case .failed:
+            lyricsUnavailable("Couldn't reach the lyrics service")
+        case .loaded(let document):
+            VStack(alignment: .leading, spacing: 8) {
+                if document.isSynced {
+                    currentLine(document)
+                    offsetControl
+                } else {
+                    Label("Only unsynced lyrics available", systemImage: "text.alignleft")
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private func lyricsUnavailable(_ message: String) -> some View {
+        HStack {
+            Label(message, systemImage: "text.badge.xmark").foregroundStyle(.secondary)
+            Spacer()
+            Button("Retry") { lyrics.reload() }.controlSize(.small)
+        }
+    }
+
+    private func currentLine(_ document: LyricsDocument) -> some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !spotify.isPlaying)) { _ in
+            let p = lyrics.position(at: spotify.position())
+            let current = p.lineIndex.map { document.lines[$0].text }
+            let next = p.nextLineIndex.map { document.lines[$0].text }
+            VStack(alignment: .leading, spacing: 3) {
+                Text(current ?? "♪")
+                    .font(.callout.weight(.semibold))
+                    .lineLimit(2)
+                if let next {
+                    Text(next).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 40, alignment: .topLeading)
+        }
+    }
+
+    private var offsetControl: some View {
+        HStack(spacing: 6) {
+            Text("Timing").font(.caption).foregroundStyle(.secondary)
+            Spacer()
+            Button { lyrics.adjustOffset(by: -0.1) } label: { Image(systemName: "minus") }
+                .help("Show lyrics later")
+            Text(offsetLabel)
+                .font(.caption.monospacedDigit())
+                .frame(minWidth: 92)
+            Button { lyrics.adjustOffset(by: 0.1) } label: { Image(systemName: "plus") }
+                .help("Show lyrics earlier")
+            Button { lyrics.offset = 0 } label: { Image(systemName: "arrow.counterclockwise") }
+                .help("Reset timing")
+                .disabled(lyrics.offset == 0)
+        }
+        .controlSize(.small)
+    }
+
+    private var offsetLabel: String {
+        if lyrics.offset == 0 { return "in sync" }
+        return String(format: "%.1f s %@", abs(lyrics.offset), lyrics.offset > 0 ? "earlier" : "later")
     }
 }

@@ -7,7 +7,7 @@ struct LyricscapeApp: App {
 
     var body: some Scene {
         MenuBarExtra("Lyricscape", systemImage: "quote.bubble") {
-            MenuBarView(spotify: appDelegate.spotify)
+            MenuBarView(spotify: appDelegate.spotify, lyrics: appDelegate.lyrics)
         }
         .menuBarExtraStyle(.window)
     }
@@ -16,9 +16,12 @@ struct LyricscapeApp: App {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let spotify = SpotifyMonitor()
+    let lyrics = LyricsController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Logger.app.notice("Lyricscape started")
+        spotify.onTrackChange = { [lyrics] track in lyrics.trackDidChange(track) }
         spotify.start()
+        lyrics.startLineLog(spotify: spotify)
     }
 }

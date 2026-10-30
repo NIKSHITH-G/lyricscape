@@ -20,7 +20,14 @@ enum SpotifyConnection: Equatable {
 @MainActor @Observable
 final class SpotifyMonitor {
     private(set) var connection: SpotifyConnection = .checking
-    private(set) var track: Track?
+    private(set) var track: Track? {
+        didSet {
+            if track?.id != oldValue?.id { onTrackChange?(track) }
+        }
+    }
+
+    /// Called whenever the playing item changes (nil when nothing is playing).
+    @ObservationIgnored var onTrackChange: ((Track?) -> Void)?
     private(set) var playerState: PlayerState = .stopped
     private(set) var clock = PlaybackClock()
 
