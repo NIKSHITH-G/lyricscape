@@ -8,14 +8,18 @@ struct LyricFrame {
     var document: LyricsDocument
     var position: LyricPosition
     var isPlaying: Bool
-    /// Changes whenever the song changes; styles drop their per-song state when it does.
-    var trackKey: String
+    var track: Track
     /// Size of the drawing area in points (y grows downwards).
     var size: CGSize
+    /// Height at the top covered by the menu bar / camera notch; keep content below it.
+    var topInset: CGFloat
     var scale: CGFloat
     var settings: StyleSettings
     /// Stage mode: drawing on solid black rather than over other windows.
     var opaqueBackground: Bool
+
+    /// Changes whenever the song changes; styles drop their per-song state when it does.
+    var trackKey: String { track.id }
 
     var currentLine: LyricLine? { position.lineIndex.map { document.lines[$0] } }
     var upcomingLines: ArraySlice<LyricLine> {

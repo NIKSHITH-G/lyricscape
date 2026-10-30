@@ -41,6 +41,10 @@ final class LyricsStageView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
+    // AppKit keeps a hosted layer's geometry in sync with the view's own coordinate
+    // system, so the view must be flipped too for the layer tree's y to grow downwards.
+    override var isFlipped: Bool { true }
+
     func start() {
         guard displayLink == nil else { return }
         let link = displayLink(target: self, selector: #selector(step))
@@ -120,12 +124,21 @@ final class LyricsStageView: NSView {
             document: document,
             position: position,
             isPlaying: spotify.isPlaying,
-            trackKey: track.id,
+            track: track,
             size: bounds.size,
+            topInset: topInset,
             scale: window?.backingScaleFactor ?? 2,
             settings: settings.styleSettings,
             opaqueBackground: settings.stageMode
         ))
+    }
+
+    /// Space taken at the top of the screen by the menu bar or the camera notch
+    /// (which stays black even over full-screen apps).
+    private var topInset: CGFloat {
+        guard let screen = window?.screen else { return 0 }
+        let menuBar = screen.frame.maxY - screen.visibleFrame.maxY
+        return max(screen.safeAreaInsets.top, menuBar)
     }
 
     /// Unsynced lyrics: one soft line at a time, cross-fading slowly.
