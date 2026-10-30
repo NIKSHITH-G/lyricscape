@@ -30,13 +30,19 @@ final class OverlayWindowController {
     private let settings: AppSettings
     private let spotify: SpotifyMonitor
     private let lyrics: LyricsController
+    private let source: any LyricSource
+    private let subtitles: SubtitleService
+    private let themes = ThemeDirector()
     private var panel: OverlayPanel?
     private var stage: LyricsStageView?
 
-    init(settings: AppSettings, spotify: SpotifyMonitor, lyrics: LyricsController) {
+    init(settings: AppSettings, spotify: SpotifyMonitor, lyrics: LyricsController,
+         source: any LyricSource, subtitles: SubtitleService) {
         self.settings = settings
         self.spotify = spotify
         self.lyrics = lyrics
+        self.source = source
+        self.subtitles = subtitles
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
                                                object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.update() }
@@ -57,15 +63,18 @@ final class OverlayWindowController {
             let panel = OverlayPanel(screen: screen)
             let container = NSView(frame: CGRect(origin: .zero, size: screen.frame.size))
 
-            let stage = LyricsStageView(frame: container.bounds, spotify: spotify, lyrics: lyrics, settings: settings)
+            let stage = LyricsStageView(frame: container.bounds, source: source, settings: settings,
+                                        themes: themes, subtitles: subtitles)
             stage.autoresizingMask = [.width, .height]
             container.addSubview(stage)
 
-            let status = NSHostingView(rootView: OverlayStatusView(spotify: spotify, lyrics: lyrics))
-            status.sizingOptions = [] // the window sizes the view, never the other way round
-            status.frame = container.bounds
-            status.autoresizingMask = [.width, .height]
-            container.addSubview(status)
+            if !(source is DemoLyricSource) {
+                let status = NSHostingView(rootView: OverlayStatusView(spotify: spotify, lyrics: lyrics))
+                status.sizingOptions = [] // the window sizes the view, never the other way round
+                status.frame = container.bounds
+                status.autoresizingMask = [.width, .height]
+                container.addSubview(status)
+            }
 
             panel.contentView = container
             stage.start()

@@ -130,3 +130,33 @@ struct SearchTermsTests {
         #expect(SearchTerms.primaryArtist("Solo") == "Solo")
     }
 }
+
+struct WordSplitterTests {
+    @Test func splitsOnSpaces() {
+        #expect(WordSplitter.words(in: "City lights  are humming") == ["City", "lights", "are", "humming"])
+    }
+
+    @Test func segmentsUnspacedChineseAndJapanese() {
+        let chinese = "我们一起走过的路"
+        let words = WordSplitter.words(in: chinese)
+        #expect(words.count >= 3)
+        #expect(words.joined() == chinese)
+
+        let japanese = "夜空に光るふたりの声"
+        let jp = WordSplitter.words(in: japanese)
+        #expect(jp.count >= 3)
+        #expect(jp.joined() == japanese)
+        #expect(!jp.contains("に")) // particles stick to the word before
+    }
+
+    @Test func leavesKoreanAndShortTokensAlone() {
+        #expect(WordSplitter.words(in: "별빛 아래서") == ["별빛", "아래서"])
+        #expect(WordSplitter.words(in: "爱你") == ["爱你"])
+    }
+
+    @Test func parserAnimatesChineseWordByWord() {
+        let doc = LRCParser.parse("[00:01.00]我们一起走过的路\n[00:05.00]下一句")
+        #expect(doc.lines[0].words.count >= 3)
+        #expect(doc.lines[0].text == "我们一起走过的路")
+    }
+}

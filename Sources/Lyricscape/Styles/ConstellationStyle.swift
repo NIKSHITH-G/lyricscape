@@ -10,6 +10,7 @@ import LyricscapeCore
 final class ConstellationStyle: LyricStyle {
     static let id = "constellation"
     static let displayName = "Constellation"
+    static let summary = "Words become linked neon stars"
 
     private let root: CALayer
     private let starfield = CALayer()
@@ -100,9 +101,11 @@ final class ConstellationStyle: LyricStyle {
         for (i, line) in wanted.sorted(by: { $0.key < $1.key }) {
             let group = groups[i] ?? makeGroup(key: i, line: line, frame: frame)
             groups[i] = group
-            hit = max(hit, group.update(time: t, position: frame.position, settings: frame.settings, fadeOut: fadeOut))
+            hit = max(hit, group.update(time: t, position: frame.position, settings: frame.settings, fadeOut: fadeOut,
+                                        beat: frame.audio.beat))
         }
 
+        hit = max(hit, frame.audio.beat * 0.7) // the border also pulses on the music's beat
         frameLayer.isHidden = !frame.settings.showFrame
         frameLayer.opacity = Float(0.4 + 0.6 * hit)
         frameLayer.shadowRadius = (8 + 18 * hit) * frame.settings.glow
@@ -428,7 +431,8 @@ private final class ConstellationGroup {
 
     /// Sets every layer for time `t`. Returns how strongly a word is "hitting" right
     /// now (1 at a keyword's onset, decaying), to pulse the screen frame.
-    func update(time t: TimeInterval, position: LyricPosition, settings: StyleSettings, fadeOut: Double) -> Double {
+    func update(time t: TimeInterval, position: LyricPosition, settings: StyleSettings, fadeOut: Double,
+                beat: Double = 0) -> Double {
         let speed = settings.speed, glow = settings.glow
 
         // Slow dolly-in while the line is sung; when it's over, the links retract into
@@ -481,7 +485,7 @@ private final class ConstellationGroup {
             let pop = Ease.outBack(age / 0.35)
             hit = max(hit, isKey ? flash : flash * 0.5)
 
-            let dotScale = pop * (1 + 0.8 * flash)
+            let dotScale = pop * (1 + 0.8 * flash + 0.25 * beat)
             node.dot.opacity = 1
             node.dot.transform = CATransform3DMakeScale(dotScale, dotScale, 1)
             node.dot.shadowRadius = node.dotSize * (1.2 + 2.5 * flash) * glow
@@ -501,7 +505,7 @@ private final class ConstellationGroup {
             node.label.shadowRadius = node.fontSize * (0.1 + 0.2 * flash) * glow
             // The halo flares on the hit, breathes while current, then settles low.
             let breathe = isCurrent ? 0.1 * sin(t * 2.4 + node.phase) : 0
-            node.halo.opacity = Float(fadeIn * min(1, (isCurrent ? 0.55 : 0.3) + 0.6 * flash + breathe) * (1 - textOut))
+            node.halo.opacity = Float(fadeIn * min(1, (isCurrent ? 0.55 : 0.3) + 0.6 * flash + breathe + 0.25 * beat) * (1 - textOut))
             node.halo.transform = transform
 
             // Keyword shockwave: a ring bursting out from the star.

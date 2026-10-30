@@ -78,7 +78,7 @@ public enum LRCParser {
             if i + 1 < entries.count {
                 end = entries[i + 1].start
             } else {
-                let estimated = entry.start + max(4, sungDuration(wordCount: text.split(separator: " ").count, available: .infinity))
+                let estimated = entry.start + max(4, sungDuration(wordCount: WordSplitter.words(in: text).count, available: .infinity))
                 end = trackDuration.map { $0 > entry.start ? min($0, estimated) : estimated } ?? estimated
             }
             let start = max(0, entry.start)
@@ -97,7 +97,7 @@ public enum LRCParser {
             .filter { !$0.isEmpty }
             .map { line in
                 LyricLine(text: line, start: 0, end: 0,
-                          words: line.split(separator: " ").map { LyricWord(text: String($0), start: 0, end: 0) },
+                          words: WordSplitter.words(in: line).map { LyricWord(text: $0, start: 0, end: 0) },
                           hasWordTiming: false)
             }
         return LyricsDocument(lines: lines, timing: .unsynced)
@@ -163,7 +163,7 @@ public enum LRCParser {
     private static func makeWords(for entry: Entry, lineStart: TimeInterval, lineEnd: TimeInterval) -> ([LyricWord], Bool) {
         let segments = entry.segments
         guard segments.contains(where: { $0.start != nil }) else {
-            let words = entry.displayText.split(separator: " ").map(String.init)
+            let words = WordSplitter.words(in: entry.displayText)
             let duration = sungDuration(wordCount: words.count, available: lineEnd - lineStart)
             return (distribute(words, from: lineStart, over: duration), false)
         }

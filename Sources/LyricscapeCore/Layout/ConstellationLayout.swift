@@ -96,7 +96,7 @@ public enum ConstellationLayout {
         // Compose around the middle, nudged a little off-centre for life.
         let origin = CGPoint(
             x: bounds.midX + bounds.width * 0.04 * CGFloat.random(in: -1...1, using: &rng),
-            y: bounds.midY + bounds.height * (0.09 * max(-1, min(1, verticalBias)) + 0.03 * CGFloat.random(in: -1...1, using: &rng))
+            y: bounds.midY + bounds.height * (0.17 * max(-1, min(1, verticalBias)) + 0.03 * CGFloat.random(in: -1...1, using: &rng))
         )
         var rects = sizes.indices.map { i in
             CGRect(x: origin.x + centers[i].x - sizes[i].width / 2, y: origin.y + centers[i].y - sizes[i].height / 2,

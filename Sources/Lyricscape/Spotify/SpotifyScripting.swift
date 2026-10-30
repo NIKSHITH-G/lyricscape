@@ -17,6 +17,7 @@ import ScriptingBridge
     /// Milliseconds.
     @objc optional var duration: Int { get }
     @objc(id) optional func id() -> String
+    @objc optional var artworkUrl: String { get }
 }
 
 @objc protocol SpotifyApplicationScripting {

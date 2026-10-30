@@ -19,6 +19,31 @@ struct LyricFrame {
     var settings: StyleSettings
     /// Stage mode: drawing on solid black rather than over other windows.
     var opaqueBackground: Bool
+    /// Live audio analysis (`.silent` when audio reactivity is off).
+    var audio: AudioLevels
+
+    /// Usable drawing area: below the menu bar / notch, with a margin all round.
+    func safeArea(margin: CGFloat = 0.06) -> CGRect {
+        let top = topInset + size.height * margin
+        return CGRect(x: size.width * margin, y: top,
+                      width: size.width * (1 - 2 * margin), height: size.height * (1 - margin) - top)
+    }
+
+    /// Where a block of `blockSize` sits for the user's position setting.
+    func anchored(_ blockSize: CGSize, in area: CGRect) -> CGPoint {
+        let a = settings.anchor
+        let x: CGFloat = switch a {
+        case .topLeft, .bottomLeft: area.minX
+        case .topRight, .bottomRight: area.maxX - blockSize.width
+        default: area.midX - blockSize.width / 2
+        }
+        let y: CGFloat = switch a {
+        case .top, .topLeft, .topRight: area.minY
+        case .bottom, .bottomLeft, .bottomRight: area.maxY - blockSize.height
+        default: area.midY - blockSize.height / 2
+        }
+        return CGPoint(x: x, y: y)
+    }
 
     /// Changes with every new play of a song (even a replay of the same one); styles
     /// drop their per-song state, and seed their layouts, with it.
@@ -39,6 +64,8 @@ struct LyricFrame {
 protocol LyricStyle: AnyObject {
     static var id: String { get }
     static var displayName: String { get }
+    /// One line for the style picker.
+    static var summary: String { get }
 
     init(root: CALayer)
 
@@ -50,7 +77,14 @@ protocol LyricStyle: AnyObject {
 }
 
 enum StyleRegistry {
-    @MainActor static let all: [any LyricStyle.Type] = [ConstellationStyle.self]
+    @MainActor static let all: [any LyricStyle.Type] = [
+        ConstellationStyle.self, KineticStyle.self, KaraokeStyle.self, RainStyle.self, OrbitStyle.self,
+        TypewriterStyle.self, GlitchStyle.self, ParticleStyle.self, MinimalStyle.self,
+    ]
+
+    /// Style IDs in display order. (A closure rather than `\.id`: key paths on
+    /// existential metatypes crash this compiler.)
+    @MainActor static var ids: [String] { all.map { $0.id } }
 
     @MainActor static func style(withID id: String) -> any LyricStyle.Type {
         all.first { $0.id == id } ?? all[0]
@@ -75,6 +109,12 @@ struct RGBA: Codable, Equatable, Sendable {
         let c = NSColor(hue: hue, saturation: saturation, brightness: brightness, alpha: alpha)
             .usingColorSpace(.sRGB) ?? .white
         self.init(c.redComponent, c.greenComponent, c.blueComponent, alpha)
+    }
+
+    var hue: Double {
+        var h: CGFloat = 0
+        nsColor.usingColorSpace(.sRGB)?.getHue(&h, saturation: nil, brightness: nil, alpha: nil)
+        return Double(h)
     }
 
     var cgColor: CGColor { CGColor(srgbRed: r, green: g, blue: b, alpha: a) }
@@ -114,13 +154,68 @@ struct LyricTheme: Codable, Equatable, Sendable {
         accent: RGBA(hex: 0xFFF2F7),
         line: RGBA(hex: 0xFF4F8B)
     )
+
+    static let terminal = LyricTheme(
+        name: "Terminal Green",
+        text: RGBA(hex: 0x7CFF9B),
+        glow: RGBA(hex: 0x00FF66),
+        accent: RGBA(hex: 0xD8FFE2),
+        line: RGBA(hex: 0x2EE86A)
+    )
+
+    /// Presets for a fixed theme.
+    static let presets: [LyricTheme] = [
+        .neonPink,
+        .neon(hue: 0.55, lineHue: 0.62).named("Cyber Blue"),
+        .neon(hue: 0.78, lineHue: 0.86).named("Ultraviolet"),
+        .neon(hue: 0.07, lineHue: 0.0).named("Sunset"),
+        .neon(hue: 0.13, lineHue: 0.09).named("Gold"),
+        .neon(hue: 0.33, lineHue: 0.45).named("Toxic"),
+        .neon(hue: 0.48, lineHue: 0.55).named("Aqua"),
+        LyricTheme(name: "Ice", text: RGBA(hex: 0xF4FAFF), glow: RGBA(hex: 0x9CC9FF),
+                   accent: RGBA(hex: 0xFFFFFF), line: RGBA(hex: 0xBFDFFF)),
+        .terminal,
+    ]
+
+    func named(_ name: String) -> LyricTheme {
+        var copy = self
+        copy.name = name
+        return copy
+    }
 }
 
-enum ThemeMode: String, Codable, Sendable {
+enum ThemeMode: String, Codable, CaseIterable, Sendable {
     /// A fresh palette for every play, never close to the last few.
     case newEachPlay
+    /// Colours from the cover art, varied on every play.
+    case albumArt
     /// Always use `StyleSettings.theme`.
     case fixed
+
+    var title: String {
+        switch self {
+        case .newEachPlay: "New every play"
+        case .albumArt: "From album art"
+        case .fixed: "Fixed"
+        }
+    }
+}
+
+/// Where on screen line-based styles (Karaoke, Typewriter, Minimal…) sit.
+enum ScreenAnchor: String, Codable, CaseIterable, Sendable {
+    case center, top, bottom, topLeft, topRight, bottomLeft, bottomRight
+
+    var title: String {
+        switch self {
+        case .center: "Centre"
+        case .top: "Top"
+        case .bottom: "Bottom"
+        case .topLeft: "Top left"
+        case .topRight: "Top right"
+        case .bottomLeft: "Bottom left"
+        case .bottomRight: "Bottom right"
+        }
+    }
 }
 
 struct StyleSettings: Codable, Equatable, Sendable {
@@ -136,10 +231,39 @@ struct StyleSettings: Codable, Equatable, Sendable {
     var spread: Double = 1
     /// Glowing neon border around the screen edge.
     var showFrame: Bool = true
+    /// Overall opacity of the lyrics, 0.2…1.
+    var opacity: Double = 1
+    /// Position for line-based styles.
+    var anchor: ScreenAnchor = .center
 
+    init() {}
+
+    // Decode field by field so settings saved by older versions keep working.
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = StyleSettings()
+        themeMode = (try? c.decode(ThemeMode.self, forKey: .themeMode)) ?? d.themeMode
+        theme = (try? c.decode(LyricTheme.self, forKey: .theme)) ?? d.theme
+        fontName = try? c.decode(String.self, forKey: .fontName)
+        sizeScale = (try? c.decode(Double.self, forKey: .sizeScale)) ?? d.sizeScale
+        glow = (try? c.decode(Double.self, forKey: .glow)) ?? d.glow
+        speed = (try? c.decode(Double.self, forKey: .speed)) ?? d.speed
+        spread = (try? c.decode(Double.self, forKey: .spread)) ?? d.spread
+        showFrame = (try? c.decode(Bool.self, forKey: .showFrame)) ?? d.showFrame
+        opacity = (try? c.decode(Double.self, forKey: .opacity)) ?? d.opacity
+        anchor = (try? c.decode(ScreenAnchor.self, forKey: .anchor)) ?? d.anchor
+    }
+
+    /// `fontName` is a font family ("Avenir Next"); nil = SF Pro Rounded.
     func font(size: CGFloat, weight: NSFont.Weight) -> NSFont {
-        if let fontName, let font = NSFont(name: fontName, size: size) {
-            return NSFontManager.shared.convert(font, toHaveTrait: weight >= .semibold ? .boldFontMask : [])
+        if let fontName {
+            let bold = weight >= .semibold
+            // NSFontManager weights run 0…15; 5 is regular, 9 bold.
+            let managerWeight = weight >= .heavy ? 11 : bold ? 9 : 5
+            if let font = NSFontManager.shared.font(withFamily: fontName, traits: bold ? .boldFontMask : [],
+                                                    weight: managerWeight, size: size) {
+                return font
+            }
         }
         let system = NSFont.systemFont(ofSize: size, weight: weight)
         guard let rounded = system.fontDescriptor.withDesign(.rounded) else { return system }

@@ -14,6 +14,7 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/Lyricscape" "$APP/Contents/MacOS/Lyricscape"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
 # Ad-hoc signature: enough to run locally and for macOS to remember permissions.
 codesign --force --sign - --identifier app.lyricscape.Lyricscape "$APP"

@@ -30,14 +30,17 @@ public struct Track: Sendable, Equatable, Identifiable {
     public let album: String
     public let duration: TimeInterval
     public let kind: ContentKind
+    /// Cover art image, when Spotify provides one.
+    public let artworkURL: URL?
 
-    public init(id: String, title: String, artist: String, album: String, duration: TimeInterval) {
+    public init(id: String, title: String, artist: String, album: String, duration: TimeInterval, artworkURL: URL? = nil) {
         self.id = id
         self.title = title
         self.artist = artist
         self.album = album
         self.duration = duration
         self.kind = ContentKind(spotifyURI: id)
+        self.artworkURL = artworkURL
     }
 }
 

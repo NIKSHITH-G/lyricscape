@@ -18,6 +18,12 @@ public struct SeededRandom: RandomNumberGenerator, Sendable {
         state = hash
     }
 
+    /// A stable 64-bit seed derived from a string.
+    public static func seed(_ key: String) -> UInt64 {
+        var rng = SeededRandom(key)
+        return rng.next()
+    }
+
     public mutating func next() -> UInt64 {
         state &+= 0x9E37_79B9_7F4A_7C15
         var z = state

@@ -112,7 +112,8 @@ final class SpotifyBridge: NSObject, @unchecked Sendable, SBApplicationDelegate 
                 title: trackRef.name ?? "",
                 artist: trackRef.artist ?? "",
                 album: trackRef.album ?? "",
-                duration: Double(trackRef.duration ?? 0) / 1000
+                duration: Double(trackRef.duration ?? 0) / 1000,
+                artworkURL: trackRef.artworkUrl.flatMap { URL(string: $0) }
             )
         }
 

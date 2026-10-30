@@ -13,6 +13,8 @@ struct LRCLIBRecord: Codable, Sendable, Equatable {
     var syncedLyrics: String?
 
     var hasSyncedLyrics: Bool { !(syncedLyrics ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    /// Enhanced LRC with per-word `<mm:ss.xx>` stamps.
+    var hasWordTiming: Bool { syncedLyrics?.range(of: #"<\d+:\d+"#, options: .regularExpression) != nil }
     var hasPlainLyrics: Bool { !(plainLyrics ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 }
 
@@ -32,11 +34,19 @@ struct LRCLIBClient: Sendable {
     /// is never cached as "no lyrics".
     func lookup(_ track: Track) async throws -> LRCLIBRecord? {
         var lastError: (any Error)?
+        var exact: LRCLIBRecord?
         do {
-            if let exact = try await get(track) { return exact }
+            exact = try await get(track)
         } catch {
             try Task.checkCancellation()
             lastError = error
+        }
+        if let exact {
+            guard exact.hasSyncedLyrics, !exact.hasWordTiming else { return exact }
+            // Line-timed: see if someone has uploaded a word-timed version of the same recording.
+            let query: [URLQueryItem] = [.init(name: "track_name", value: track.title), .init(name: "artist_name", value: track.artist)]
+            let wordTimed = (try? await search(query))?.filter(\.hasWordTiming)
+            return wordTimed.flatMap { Self.bestMatch(in: $0, for: track) } ?? exact
         }
 
         let title = SearchTerms.cleanTitle(track.title)
@@ -89,6 +99,7 @@ struct LRCLIBClient: Sendable {
         }
         return usable.min { a, b in
             if a.hasSyncedLyrics != b.hasSyncedLyrics { return a.hasSyncedLyrics }
+            if a.hasWordTiming != b.hasWordTiming { return a.hasWordTiming }
             return abs((a.duration ?? 0) - track.duration) < abs((b.duration ?? 0) - track.duration)
         }
     }

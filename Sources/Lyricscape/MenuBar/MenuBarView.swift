@@ -5,6 +5,7 @@ struct MenuBarView: View {
     let spotify: SpotifyMonitor
     let lyrics: LyricsController
     @Bindable var settings: AppSettings
+    let openSettings: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -18,8 +19,13 @@ struct MenuBarView: View {
             Divider()
             overlaySection
             Divider()
-            Button("Quit Lyricscape") { NSApp.terminate(nil) }
-                .keyboardShortcut("q")
+            HStack {
+                Button("Settings…") { openSettings() }
+                    .keyboardShortcut(",")
+                Spacer()
+                Button("Quit Lyricscape") { NSApp.terminate(nil) }
+                    .keyboardShortcut("q")
+            }
         }
         .padding(14)
         .frame(width: 320)
@@ -138,6 +144,15 @@ struct MenuBarView: View {
                 shortcutLabel("Stage mode (black background)", .toggleStage)
             }
             .disabled(!settings.overlayVisible)
+            HStack {
+                Picker("Style", selection: $settings.styleID) {
+                    ForEach(StyleRegistry.ids, id: \.self) { id in
+                        Text(StyleRegistry.style(withID: id).displayName).tag(id)
+                    }
+                }
+                Text(settings.hotKeys[.nextStyle]?.displayString ?? "")
+                    .font(.caption.monospaced()).foregroundStyle(.secondary)
+            }
             if NSScreen.screens.count > 1 {
                 Picker("Display", selection: $settings.displayID) {
                     Text("Main display").tag(CGDirectDisplayID?.none)
@@ -152,11 +167,11 @@ struct MenuBarView: View {
         .controlSize(.small)
     }
 
-    private func shortcutLabel(_ title: String, _ hotKey: HotKey) -> some View {
+    private func shortcutLabel(_ title: String, _ action: HotKeyAction) -> some View {
         HStack {
             Text(title)
             Spacer()
-            Text(hotKey.displayString).font(.caption.monospaced()).foregroundStyle(.secondary)
+            Text(settings.hotKeys[action]?.displayString ?? "").font(.caption.monospaced()).foregroundStyle(.secondary)
         }
     }
 

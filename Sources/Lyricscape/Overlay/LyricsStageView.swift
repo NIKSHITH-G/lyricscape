@@ -1,34 +1,37 @@
 import AppKit
-import OSLog
 import LyricscapeCore
 
 /// Hosts the active `LyricStyle` in a tree of Core Animation layers and drives it
-/// with a display link: 60 fps while playing, stopped while paused.
+/// with a display link: 60 fps while playing, stopped while paused. Used full-screen
+/// for the overlay and small for the Settings preview.
 @MainActor
 final class LyricsStageView: NSView {
-    private let spotify: SpotifyMonitor
-    private let lyrics: LyricsController
+    private let source: any LyricSource
     private let settings: AppSettings
+    private let themes: ThemeDirector
+    private let subtitles: SubtitleService
+    /// Preview: always on black, no menu-bar inset.
+    private let isPreview: Bool
 
     private let backgroundLayer = CALayer()
     private let styleRoot = CALayer()
     private let ambientLayer = CATextLayer()
+    private let subtitleLayer = CATextLayer()
     private var style: any LyricStyle
     private var styleID: String
     private var displayLink: CADisplayLink?
     private var stateTask: Task<Void, Never>?
     private var ambientIndex: Int?
-    private var stageMode: Bool?
-    /// Theme chosen for the current play, and the hues of recent plays to avoid.
-    private var themeKey: String?
-    private var playTheme = LyricTheme.neonPink
-    private var recentHues: [Double] = []
-    private var rng = SystemRandomNumberGenerator()
+    private var subtitleText: String?
+    private var backgroundIsOpaque: Bool?
 
-    init(frame: CGRect, spotify: SpotifyMonitor, lyrics: LyricsController, settings: AppSettings) {
-        self.spotify = spotify
-        self.lyrics = lyrics
+    init(frame: CGRect, source: any LyricSource, settings: AppSettings, themes: ThemeDirector,
+         subtitles: SubtitleService, isPreview: Bool = false) {
+        self.source = source
         self.settings = settings
+        self.themes = themes
+        self.subtitles = subtitles
+        self.isPreview = isPreview
         styleID = settings.styleID
         style = StyleRegistry.style(withID: styleID).init(root: styleRoot)
         super.init(frame: frame)
@@ -36,12 +39,15 @@ final class LyricsStageView: NSView {
         // Layer-hosting view: we own the layer tree, AppKit doesn't touch it.
         let root = CALayer()
         root.isGeometryFlipped = true // y grows downwards, like the layout code expects
+        root.masksToBounds = true
         layer = root
         wantsLayer = true
-        for sublayer in [backgroundLayer, styleRoot, ambientLayer] { root.addSublayer(sublayer) }
-        ambientLayer.alignmentMode = .center
-        ambientLayer.isWrapped = true
-        ambientLayer.opacity = 0
+        for sublayer in [backgroundLayer, styleRoot, ambientLayer, subtitleLayer] { root.addSublayer(sublayer) }
+        for text in [ambientLayer, subtitleLayer] {
+            text.alignmentMode = .center
+            text.isWrapped = true
+            text.opacity = 0
+        }
     }
 
     @available(*, unavailable)
@@ -84,18 +90,20 @@ final class LyricsStageView: NSView {
         if settings.styleID != styleID {
             style.reset()
             styleRoot.sublayers?.forEach { $0.removeFromSuperlayer() }
+            styleRoot.transform = CATransform3DIdentity
             styleID = settings.styleID
             style = StyleRegistry.style(withID: styleID).init(root: styleRoot)
         }
-        if settings.stageMode != stageMode {
-            stageMode = settings.stageMode
+        let wantsOpaque = isPreview || settings.stageMode
+        if wantsOpaque != backgroundIsOpaque {
+            backgroundIsOpaque = wantsOpaque
             CATransaction.begin()
-            CATransaction.setAnimationDuration(0.4)
-            backgroundLayer.backgroundColor = settings.stageMode ? CGColor.black : CGColor.clear
+            CATransaction.setAnimationDuration(isPreview ? 0 : 0.4)
+            backgroundLayer.backgroundColor = wantsOpaque ? CGColor.black : CGColor.clear
             CATransaction.commit()
         }
-        displayLink?.isPaused = !spotify.isPlaying
-        if !spotify.isPlaying { render() }
+        displayLink?.isPaused = !source.isPlaying
+        if !source.isPlaying { render() }
     }
 
     private func render() {
@@ -104,42 +112,48 @@ final class LyricsStageView: NSView {
         defer { CATransaction.commit() }
 
         for sublayer in [backgroundLayer, styleRoot] where sublayer.frame != bounds { sublayer.frame = bounds }
+        styleRoot.opacity = Float(settings.styleSettings.opacity)
 
-        guard spotify.connection == .connected, let track = spotify.track,
-              let document = lyrics.document, !document.lines.isEmpty else {
+        guard let track = source.track, let document = source.document, !document.lines.isEmpty else {
             styleRoot.isHidden = true
             showAmbient(nil, settings: settings.styleSettings)
+            showSubtitle(nil, settings: settings.styleSettings)
             return
         }
-        let playback = spotify.position()
+        let playback = source.playbackPosition()
+        let styleSettings = themes.settings(for: track, playID: source.playID, base: settings.styleSettings)
 
         if !document.isSynced {
             // Plain lyrics: step slowly through the lines in proportion to the song.
             styleRoot.isHidden = true
             let progress = playback / max(track.duration, 1)
             let index = min(document.lines.count - 1, max(0, Int(progress * Double(document.lines.count))))
-            showAmbient((index, document.lines[index].text),
-                        settings: effectiveSettings(trackKey: "\(track.id)#\(spotify.playID)"))
+            showAmbient((index, document.lines[index].text), settings: styleSettings)
+            showSubtitle(subtitles.subtitle(for: document.lines[index].text, mode: settings.subtitleMode), settings: styleSettings)
             return
         }
 
-        showAmbient(nil, settings: settings.styleSettings)
+        showAmbient(nil, settings: styleSettings)
         styleRoot.isHidden = false
-        let position = lyrics.position(at: playback)
-        let styleSettings = effectiveSettings(trackKey: "\(track.id)#\(spotify.playID)")
+        let position = source.lyricPosition(at: playback)
         style.update(LyricFrame(
             time: position.time,
             document: document,
             position: position,
-            isPlaying: spotify.isPlaying,
+            isPlaying: source.isPlaying,
             track: track,
-            playID: spotify.playID,
+            playID: source.playID,
             size: bounds.size,
-            topInset: topInset,
+            topInset: isPreview ? 0 : topInset,
             scale: window?.backingScaleFactor ?? 2,
             settings: styleSettings,
-            opaqueBackground: settings.stageMode
+            opaqueBackground: isPreview || settings.stageMode,
+            audio: settings.audioReactive ? source.audio : .silent
         ))
+
+        let lineIndex = position.lineIndex ?? position.lastLineIndex
+        let text = lineIndex.flatMap { subtitles.subtitle(for: document.lines[$0].text, mode: settings.subtitleMode) }
+        showSubtitle(text, settings: styleSettings)
     }
 
     /// Space taken at the top of the screen by the menu bar or the camera notch
@@ -151,24 +165,6 @@ final class LyricsStageView: NSView {
     }
 
     /// Unsynced lyrics: one soft line at a time, cross-fading slowly.
-    /// The user's style settings, with this play's generated theme when the theme
-    /// changes on every play.
-    private func effectiveSettings(trackKey: String) -> StyleSettings {
-        var s = settings.styleSettings
-        guard s.themeMode == .newEachPlay else { return s }
-        if trackKey != themeKey {
-            themeKey = trackKey
-            let hue = HuePicker.next(avoiding: recentHues, using: &rng)
-            recentHues = Array((recentHues + [hue]).suffix(HuePicker.memory))
-            let lineHue = (hue + Double.random(in: 0.06...0.14, using: &rng) * (Bool.random(using: &rng) ? 1 : -1) + 1)
-                .truncatingRemainder(dividingBy: 1)
-            playTheme = .neon(hue: hue, lineHue: lineHue)
-            Logger.app.notice("🎨 Theme for this play: \(self.playTheme.name, privacy: .public)")
-        }
-        s.theme = playTheme
-        return s
-    }
-
     private func showAmbient(_ line: (index: Int, text: String)?, settings s: StyleSettings) {
         guard let line else {
             ambientIndex = nil
@@ -196,5 +192,32 @@ final class LyricsStageView: NSView {
             .foregroundColor: s.theme.text.withAlpha(0.7).nsColor,
         ])
         ambientLayer.opacity = 1
+    }
+
+    /// Translation / romanization under the visuals, shared by every style.
+    private func showSubtitle(_ text: String?, settings s: StyleSettings) {
+        guard text != subtitleText else { return }
+        subtitleText = text
+        guard let text, !text.isEmpty else {
+            subtitleLayer.opacity = 0
+            return
+        }
+        let fontSize = max(11, min(bounds.width, bounds.height) * 0.024)
+        subtitleLayer.contentsScale = window?.backingScaleFactor ?? 2
+        subtitleLayer.frame = CGRect(x: bounds.width * 0.1, y: bounds.height * 0.86 - fontSize * 2.6,
+                                     width: bounds.width * 0.8, height: fontSize * 2.8)
+        subtitleLayer.shadowColor = CGColor.black
+        subtitleLayer.shadowOpacity = 0.9
+        subtitleLayer.shadowRadius = 6
+        subtitleLayer.shadowOffset = .zero
+        let fade = CATransition()
+        fade.type = .fade
+        fade.duration = 0.35
+        subtitleLayer.add(fade, forKey: "fade")
+        subtitleLayer.string = NSAttributedString(string: text, attributes: [
+            .font: NSFont.systemFont(ofSize: fontSize, weight: .medium),
+            .foregroundColor: s.theme.text.withAlpha(0.8).nsColor,
+        ])
+        subtitleLayer.opacity = 1
     }
 }

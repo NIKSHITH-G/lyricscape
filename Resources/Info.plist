@@ -8,6 +8,8 @@
 	<string>Lyricscape</string>
 	<key>CFBundleExecutable</key>
 	<string>Lyricscape</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>app.lyricscape.Lyricscape</string>
 	<key>CFBundleInfoDictionaryVersion</key>
