@@ -13,12 +13,16 @@ final class OverlayPanel: NSPanel {
         isReleasedWhenClosed = false
         hidesOnDeactivate = false
         animationBehavior = .none
-        // Above normal windows and the Dock, just below the menu bar so the
-        // Lyricscape menu stays reachable even in Stage mode.
-        level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue - 1)
+        level = Self.floatingLevel
         // Every Space, including over full-screen apps, and not moved by Mission Control.
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
     }
+
+    /// Transparent lyrics: above normal windows and the Dock, just below the menu bar.
+    static let floatingLevel = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue - 1)
+    /// Stage mode: behind every app window (but above the desktop icons), like a live
+    /// wallpaper, so it never covers Settings or anything else you're using.
+    static let backgroundLevel = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopIconWindow)) + 1)
 
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
@@ -85,6 +89,8 @@ final class OverlayWindowController {
         if panel?.frame != screen.frame {
             panel?.setFrame(screen.frame, display: true)
         }
+        let level = settings.stageMode ? OverlayPanel.backgroundLevel : OverlayPanel.floatingLevel
+        if panel?.level != level { panel?.level = level }
         panel?.orderFrontRegardless()
     }
 
