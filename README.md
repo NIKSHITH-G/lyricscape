@@ -11,8 +11,9 @@ Lyricscape lives in the menu bar (💬). From there or the keyboard:
 | ⌃⌥⌘L | Show / hide the lyrics |
 | ⌃⌥⌘S | Stage mode (solid black background, like a visualizer) |
 | ⌃⌥⌘N | Next style |
+| ⌘⇧D | Move the lyrics to the next screen (laptop ↔ monitor) |
 
-All three can be changed in **Settings → General**. The lyrics float above everything, but clicks go straight through them. They also show over full-screen apps and on every desktop.
+All of them can be changed in **Settings → General**. The lyrics float above everything, but clicks go straight through them. They also show over full-screen apps and on every desktop.
 
 ### Styles
 

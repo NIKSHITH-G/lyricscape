@@ -3,13 +3,14 @@ import Carbon
 import OSLog
 
 enum HotKeyAction: String, Codable, CaseIterable, Sendable {
-    case toggleOverlay, toggleStage, nextStyle
+    case toggleOverlay, toggleStage, nextStyle, nextDisplay
 
     var title: String {
         switch self {
         case .toggleOverlay: "Show / hide lyrics"
         case .toggleStage: "Stage mode"
         case .nextStyle: "Next style"
+        case .nextDisplay: "Move to next screen"
         }
     }
 }
@@ -26,6 +27,7 @@ struct HotKey: Codable, Equatable, Sendable {
         .toggleOverlay: HotKey(keyCode: UInt32(kVK_ANSI_L), modifiers: UInt32(controlKey | optionKey | cmdKey), keyName: "L"),
         .toggleStage: HotKey(keyCode: UInt32(kVK_ANSI_S), modifiers: UInt32(controlKey | optionKey | cmdKey), keyName: "S"),
         .nextStyle: HotKey(keyCode: UInt32(kVK_ANSI_N), modifiers: UInt32(controlKey | optionKey | cmdKey), keyName: "N"),
+        .nextDisplay: HotKey(keyCode: UInt32(kVK_ANSI_D), modifiers: UInt32(cmdKey | shiftKey), keyName: "D"),
     ]
 
     var displayString: String {

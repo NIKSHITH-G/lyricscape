@@ -75,6 +75,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             settings.cycleStyle()
             settings.overlayVisible = true
             Logger.app.notice("🎭 Style: \(StyleRegistry.style(withID: self.settings.styleID).displayName, privacy: .public)")
+        case .nextDisplay:
+            let screens = NSScreen.screens
+            guard screens.count > 1 else { return }
+            let current = screens.firstIndex { $0.displayID == settings.displayID } ?? 0
+            let next = screens[(current + 1) % screens.count]
+            settings.displayID = next.displayID
+            settings.overlayVisible = true
+            Logger.app.notice("🖥 Moved to \(next.localizedName, privacy: .public)")
         }
     }
 }
