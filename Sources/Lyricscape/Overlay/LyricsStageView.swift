@@ -1,4 +1,5 @@
 import AppKit
+import OSLog
 import LyricscapeCore
 
 /// Hosts the active `LyricStyle` in a tree of Core Animation layers and drives it
@@ -18,6 +19,11 @@ final class LyricsStageView: NSView {
     private var stateTask: Task<Void, Never>?
     private var ambientIndex: Int?
     private var stageMode: Bool?
+    /// Theme chosen for the current play, and the hues of recent plays to avoid.
+    private var themeKey: String?
+    private var playTheme = LyricTheme.neonPink
+    private var recentHues: [Double] = []
+    private var rng = SystemRandomNumberGenerator()
 
     init(frame: CGRect, spotify: SpotifyMonitor, lyrics: LyricsController, settings: AppSettings) {
         self.spotify = spotify
@@ -102,7 +108,7 @@ final class LyricsStageView: NSView {
         guard spotify.connection == .connected, let track = spotify.track,
               let document = lyrics.document, !document.lines.isEmpty else {
             styleRoot.isHidden = true
-            showAmbient(nil)
+            showAmbient(nil, settings: settings.styleSettings)
             return
         }
         let playback = spotify.position()
@@ -112,23 +118,26 @@ final class LyricsStageView: NSView {
             styleRoot.isHidden = true
             let progress = playback / max(track.duration, 1)
             let index = min(document.lines.count - 1, max(0, Int(progress * Double(document.lines.count))))
-            showAmbient((index, document.lines[index].text))
+            showAmbient((index, document.lines[index].text),
+                        settings: effectiveSettings(trackKey: "\(track.id)#\(spotify.playID)"))
             return
         }
 
-        showAmbient(nil)
+        showAmbient(nil, settings: settings.styleSettings)
         styleRoot.isHidden = false
         let position = lyrics.position(at: playback)
+        let styleSettings = effectiveSettings(trackKey: "\(track.id)#\(spotify.playID)")
         style.update(LyricFrame(
             time: position.time,
             document: document,
             position: position,
             isPlaying: spotify.isPlaying,
             track: track,
+            playID: spotify.playID,
             size: bounds.size,
             topInset: topInset,
             scale: window?.backingScaleFactor ?? 2,
-            settings: settings.styleSettings,
+            settings: styleSettings,
             opaqueBackground: settings.stageMode
         ))
     }
@@ -142,7 +151,25 @@ final class LyricsStageView: NSView {
     }
 
     /// Unsynced lyrics: one soft line at a time, cross-fading slowly.
-    private func showAmbient(_ line: (index: Int, text: String)?) {
+    /// The user's style settings, with this play's generated theme when the theme
+    /// changes on every play.
+    private func effectiveSettings(trackKey: String) -> StyleSettings {
+        var s = settings.styleSettings
+        guard s.themeMode == .newEachPlay else { return s }
+        if trackKey != themeKey {
+            themeKey = trackKey
+            let hue = HuePicker.next(avoiding: recentHues, using: &rng)
+            recentHues = Array((recentHues + [hue]).suffix(HuePicker.memory))
+            let lineHue = (hue + Double.random(in: 0.06...0.14, using: &rng) * (Bool.random(using: &rng) ? 1 : -1) + 1)
+                .truncatingRemainder(dividingBy: 1)
+            playTheme = .neon(hue: hue, lineHue: lineHue)
+            Logger.app.notice("🎨 Theme for this play: \(self.playTheme.name, privacy: .public)")
+        }
+        s.theme = playTheme
+        return s
+    }
+
+    private func showAmbient(_ line: (index: Int, text: String)?, settings s: StyleSettings) {
         guard let line else {
             ambientIndex = nil
             ambientLayer.opacity = 0
@@ -151,7 +178,6 @@ final class LyricsStageView: NSView {
         guard line.index != ambientIndex else { return }
         ambientIndex = line.index
 
-        let s = settings.styleSettings
         let fontSize = min(bounds.width, bounds.height) * 0.035 * s.sizeScale
         ambientLayer.contentsScale = window?.backingScaleFactor ?? 2
         ambientLayer.frame = CGRect(x: bounds.width * 0.15, y: bounds.midY - fontSize * 1.5,

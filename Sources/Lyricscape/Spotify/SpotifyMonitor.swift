@@ -30,6 +30,9 @@ final class SpotifyMonitor {
     @ObservationIgnored var onTrackChange: ((Track?) -> Void)?
     private(set) var playerState: PlayerState = .stopped
     private(set) var clock = PlaybackClock()
+    /// Increases every time a song starts playing: a new track, or the same track
+    /// restarted from the beginning (repeat, "previous", or dragging back to 0:00).
+    private(set) var playID = 0
 
     var isPlaying: Bool { connection == .connected && playerState == .playing }
 
@@ -128,6 +131,7 @@ final class SpotifyMonitor {
 
         if reading.track?.id != track?.id {
             track = reading.track
+            playID += 1
             playerState = reading.state
             clock.reset(position: reading.position, isPlaying: playing, at: reading.timestamp)
             logTrack()
@@ -142,6 +146,10 @@ final class SpotifyMonitor {
 
         switch event {
         case .seek(let from, let to):
+            if to < 2 && from > 10 {
+                playID += 1
+                Logger.spotify.notice("🔁 Song restarted")
+            }
             Logger.spotify.notice("⏩ Seek \(TimeFormat.string(from, millis: true), privacy: .public) → \(TimeFormat.string(to, millis: true), privacy: .public)")
         case .drift(let error):
             #if DEBUG
